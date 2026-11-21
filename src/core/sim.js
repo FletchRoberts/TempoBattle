@@ -12,6 +12,9 @@ export const TIME_LIMIT = 120; // hard stop, counts as a draw
 export const MAX_BARS = 3;
 export const SIM_DT = 0.05;    // fixed simulation step (divides every tick interval evenly)
 export const MAX_SPEED = 4;    // bar speed cap; stops haste/overclock feedback loops
+export const MIN_SPEED = 0.3;  // slows can't push a bar below this
+export const HEAL_CLEANSE = 0.2;    // each Heal also removes this share of your Poison (rounded up)
+export const BURN_VS_SHIELD = 0.5;  // Burn deals only this much of its damage to Shield
 
 export class Fighter {
   constructor(name, items, hp) {
@@ -19,13 +22,16 @@ export class Fighter {
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
     this.items = items.map(i => ({ ...i, bonus: {}, uses: 0 }));
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
-    this.speedPerm = 1; this.hastes = [];
+    this.speedPerm = 1; this.hastes = []; this.slows = [];
   }
   speed(t) {
     let s = this.speedPerm;
     for (const h of this.hastes) if (h.until > t) s *= 1 + h.v;
-    return Math.min(MAX_SPEED, s);
+    for (const h of this.slows) if (h.until > t) s *= 1 - h.v;
+    return Math.max(MIN_SPEED, Math.min(MAX_SPEED, s));
   }
+  hasteNow(t) { return this.hastes.some(h => h.until > t); }
+  slowNow(t) { return this.slows.some(h => h.until > t); }
 }
 
 export class Battle {
@@ -36,6 +42,7 @@ export class Battle {
   }
   step(dt = SIM_DT) {
     if (this.done) return;
+    if (!this.started) { this.started = true; for (let i = 0; i < 2; i++) this.battleStart(i); }
     this.t += dt;
     for (let i = 0; i < 2; i++) this.advance(i, dt);
     this.burnAcc += dt;
@@ -51,6 +58,7 @@ export class Battle {
   advance(i, dt) {
     const me = this.f[i];
     if (me.hastes.length) me.hastes = me.hastes.filter(h => h.until > this.t);
+    if (me.slows.length) me.slows = me.slows.filter(h => h.until > this.t);
     const d = dt / COL_TIME * me.speed(this.t);
     for (const bar of [...me.bars]) {
       let rem = d; bar.jump = false;
@@ -73,7 +81,7 @@ export class Battle {
     me.bars = me.bars.filter(b => !b.dead);
   }
   activate(i, inst, bar) {
-    const me = this.f[i], foe = this.f[1 - i], d = def(inst), L = inst.level - 1, sp = d.special;
+    const me = this.f[i], d = def(inst), L = inst.level - 1, sp = d.special;
     this.fx('activate', i, inst);
     if (sp && sp.kind === 'amplify') return; // passive
 
@@ -81,19 +89,37 @@ export class Battle {
     for (const o of me.items) if (o !== inst && ITEMS[o.id].special?.kind === 'amplify' && adjacent(o, inst)) mult += ITEMS[o.id].special.v[o.level - 1];
     const st = statsOf(inst);
     for (const k in inst.bonus) st[k] = (st[k] || 0) + inst.bonus[k];
+    this.applyStats(i, st, mult);
+    if (sp) this.applySpecial(i, inst, sp, L, bar);
+  }
+  // Battle start: items with a `start` block fire it once, before any bar moves.
+  battleStart(i) {
+    for (const inst of this.f[i].items) {
+      const s0 = def(inst).start; if (!s0) continue;
+      const L = inst.level - 1, st = {};
+      for (const [k, arr] of Object.entries(s0.effects || {})) st[k] = arr[L];
+      this.fx('activate', i, inst);
+      this.applyStats(i, st, 1);
+      if (s0.special) this.applySpecial(i, inst, s0.special, L, null);
+    }
+  }
+  applyStats(i, st, mult) {
+    const me = this.f[i], foe = this.f[1 - i];
     const val = k => Math.round((st[k] || 0) * mult);
-
     let v;
     if ((v = val('shield')) > 0) { me.shield += v; this.fx('float', i, `+${v}`, 'shield'); }
-    if ((v = val('heal')) > 0) { me.hp += Math.min(v, me.maxHp - me.hp); this.fx('float', i, `+${v}`, 'heal'); }
+    if ((v = val('heal')) > 0) {
+      me.hp += Math.min(v, me.maxHp - me.hp); this.fx('float', i, `+${v}`, 'heal');
+      if (me.poison > 0) me.poison -= Math.ceil(me.poison * HEAL_CLEANSE); // healing also eases poison
+    }
     if ((v = val('regen')) > 0) { me.regen += v; this.fx('float', i, `+${v} regen`, 'regen'); }
     if ((v = val('cleanse')) > 0) { me.poison = Math.max(0, me.poison - v); me.burn = Math.max(0, me.burn - v); this.fx('float', i, `cleanse ${v}`, 'heal'); }
     if ((v = val('damage')) > 0) this.hit(1 - i, v, 'damage');
     if ((v = val('burn')) > 0) { foe.burn += v; this.fx('float', 1 - i, `+${v} burn`, 'burn'); }
     if ((v = val('poison')) > 0) { foe.poison += v; this.fx('float', 1 - i, `+${v} poison`, 'poison'); }
-
-    if (!sp) return;
-    const sv = sp.v[L];
+  }
+  applySpecial(i, inst, sp, L, bar) {
+    const me = this.f[i], foe = this.f[1 - i], sv = sp.v[L];
     switch (sp.kind) {
       case 'buffAdj':
         for (const o of me.items) if (o !== inst && adjacent(o, inst) && tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o); }
@@ -102,14 +128,11 @@ export class Battle {
         for (const o of me.items) if (tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o); }
         break;
       case 'grow': inst.bonus[sp.stat] = (inst.bonus[sp.stat] || 0) + sv; this.fx('buff', i, inst); break;
-      case 'haste': { // the same item refreshes its haste instead of stacking it
-        const h = me.hastes.find(x => x.src === inst.uid);
-        if (h) { h.v = sv; h.until = this.t + 3; } else me.hastes.push({ src: inst.uid, v: sv, until: this.t + 3 });
-        this.fx('float', i, 'haste', 'time'); break;
-      }
+      case 'haste': this.timed(me.hastes, inst, sv, sp.dur ?? 3); this.fx('float', i, 'haste', 'time'); break;
+      case 'slow': this.timed(foe.slows, inst, sv, sp.dur ?? 3); this.fx('float', 1 - i, 'slowed', 'slow'); break;
       case 'overclock': me.speedPerm += sv; this.fx('float', i, 'overclock', 'time'); break;
       case 'rewind':
-        if (inst.uses < sv) { inst.uses++; bar.pos = -0.5; bar.jump = true; this.fx('float', i, 'rewind', 'time'); }
+        if (bar && inst.uses < sv) { inst.uses++; bar.pos = -0.5; bar.jump = true; this.fx('float', i, 'rewind', 'time'); }
         break;
       case 'echo':
         if (inst.uses < sv && me.bars.length < MAX_BARS) { inst.uses++; me.bars.push({ id: uid(), pos: -0.5, temp: true }); this.fx('float', i, 'echo', 'time'); }
@@ -118,6 +141,11 @@ export class Battle {
       case 'ignite': if (foe.burn > 0) { foe.burn = Math.round(foe.burn * sv); this.fx('float', 1 - i, `ignite → ${foe.burn}`, 'burn'); } break;
     }
   }
+  // Haste/slow from the same item refreshes instead of stacking.
+  timed(list, inst, v, dur) {
+    const h = list.find(x => x.src === inst.uid);
+    if (h) { h.v = Math.max(h.v, v); h.until = this.t + dur; } else list.push({ src: inst.uid, v, until: this.t + dur });
+  }
   hit(target, amt, cls) {
     const t = this.f[target], blocked = Math.min(t.shield, amt);
     t.shield -= blocked; t.hp -= amt - blocked;
@@ -125,9 +153,11 @@ export class Battle {
   }
   burnTick(i) {
     const me = this.f[i]; if (me.burn <= 0) return;
-    const blocked = Math.min(me.shield, me.burn);
-    me.shield -= blocked; me.hp -= me.burn - blocked;
-    this.fx('float', i, `−${me.burn}`, 'burn'); me.burn--;
+    // Shield soaks Burn at half rate: each point of Shield blocks 2 Burn damage.
+    const covered = Math.min(me.burn, Math.floor(me.shield / BURN_VS_SHIELD));
+    me.shield -= Math.ceil(covered * BURN_VS_SHIELD);
+    me.hp -= me.burn - covered;
+    this.fx('float', i, `−${me.burn}`, covered === me.burn ? 'shield' : 'burn'); me.burn--;
   }
   secTick(i) {
     const me = this.f[i];

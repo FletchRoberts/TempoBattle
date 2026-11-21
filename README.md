@@ -28,12 +28,16 @@ game skips straight to the fight for now.
 |---|---|
 | Grid | 3 rows × 10 columns. Items are 1×1 up to 2×3 and can be rotated. |
 | Bar | 0.5s per column (`COL_TIME`). Items in the same column fire together, top to bottom. |
-| Burn | Deals its stacks every 0.5s, then loses 1. Shield blocks it. |
-| Poison | Deals its stacks every 1s, ignores Shield, never fades. |
+| Burn | Deals its stacks every 0.5s, then loses 1. Against Shield it only does half damage (`BURN_VS_SHIELD`). |
+| Poison | Deals its stacks every 1s, ignores Shield, never fades. Each Heal removes 20% of it, rounded up (`HEAL_CLEANSE`). |
 | Regen | Heals its stacks every 1s. |
+| Haste / Slow | Haste speeds up your bar, Slow slows the enemy's, for a few seconds. The same item refreshes instead of stacking. Speed stays between ×0.3 and ×4. |
+| Battle start | Items with a `start` block fire it once when the fight begins (e.g. Ward Totem's Shield, Smoke Bomb's Slow). |
 | Storm | After 30s both sides take a weapon-like hit every 0.5s (the Burn tick); Shield absorbs it first. It starts at 2 and each hit is 25% bigger (`OVERTIME`, `STORM_BASE`, `STORM_GROWTH`). Hard draw at 120s. |
 | Levels | I–IV. The only way up is merging: two identical items of the same level make one item a level higher. |
 | Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
+| Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. An item holds level + 1. Echo Rune (rare) adds +1 multicast. |
+| Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. |
 | Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): multicast ×2, double price. Merging keeps it. |
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |

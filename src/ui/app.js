@@ -1,12 +1,12 @@
 // Browser UI: shop, drag and drop, PvP battle playback. All rules come from src/core.
-import { RARITY, INFUSIONS, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS } from '../data/items.js';
+import { RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_MULTICAST,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, maxHp, income, starterBoard, rollShop,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, modSlots, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot,
 } from '../core/rules.js';
-import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT } from '../core/sim.js';
+import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
 
@@ -30,8 +30,8 @@ function newRun() {
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
     phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false,
-    board: starterBoard(), bench: [], essences: [], shop: [], faced: new Set(), history: [],
-    selected: null, pendingEssence: null, battle: null, opponent: null, over: false,
+    board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
+    selected: null, pending: null, battle: null, opponent: null, over: false,
   };
   S.shop = rollShop(S.day, rng);
   render();
@@ -57,10 +57,11 @@ function nextDay(result) {
   // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
   const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
   const fresh = rollShop(S.day, rng);
-  const keptItems = kept.filter(o => o.kind === 'item'), keptEss = kept.filter(o => o.kind === 'essence');
-  const items = fresh.filter(o => o.kind === 'item'), ess = fresh.filter(o => o.kind === 'essence');
-  S.shop = [...keptItems.map(o => ({ ...o, frozen: true })), ...items.slice(keptItems.length),
-    ...keptEss.map(o => ({ ...o, frozen: true })), ...ess.slice(keptEss.length)];
+  S.shop = [];
+  for (const kind of ['item', 'mod', 'essence']) {
+    const k = kept.filter(o => o.kind === kind), f = fresh.filter(o => o.kind === kind);
+    S.shop.push(...k.map(o => ({ ...o, frozen: true })), ...f.slice(k.length));
+  }
   S.frozen = false;
   render();
 }
@@ -74,6 +75,16 @@ function describe(inst) {
   for (const k of STAT_ORDER) if (d.effects?.[k]) lines.push(`<li class="s-${k}">${STAT_TEXT[k](prog(d.effects[k], L))}</li>`);
   if (d.special) { const SP = SPECIALS[d.special.kind]; lines.push(`<li class="s-special">${SP.text(d.special, prog(d.special.v, L, SP.fmt))}</li>`); }
   if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](prog(f.v, L))}</li>`); }
+  if (d.start) {
+    const parts = [];
+    for (const k of STAT_ORDER) if (d.start.effects?.[k]) parts.push(STAT_TEXT[k](prog(d.start.effects[k], L)));
+    if (d.start.special) { const SP = SPECIALS[d.start.special.kind]; parts.push(SP.text(d.start.special, prog(d.start.special.v, L, SP.fmt)).replace(/\. Triggering again refreshes it$/, '')); }
+    lines.unshift(`<li class="s-start"><b>Battle start:</b> ${parts.join('. ')}</li>`);
+  }
+  for (const id of inst.mods || []) {
+    const m = MODIFIERS[id];
+    lines.push(`<li class="s-${m.stat || 'multicast'} modded">${m.icon} ${m.name}: ${m.stat ? `+<span class="cur">${m.v}</span> ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</li>`);
+  }
   if (inst.multicast > 1) lines.push(`<li class="s-multicast">Multicast <span class="cur">×${inst.multicast}</span>: fires ${inst.multicast} times each time the bar hits it</li>`);
   return lines.join('');
 }
@@ -98,7 +109,8 @@ function itemEl(inst, scale = 'cell') {
   const pips = [0, 1, 2, 3].map(i => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('');
   e.innerHTML = `<span class="ico">${d.icon}</span><span class="pips">${pips}</span>` +
     (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') +
-    (inst.multicast > 1 ? `<span class="mc">×${inst.multicast}</span>` : '') + `<span class="flash"></span>`;
+    `<span class="badges">${inst.multicast > 1 ? `<i class="mc">×${inst.multicast}</i>` : ''}${inst.mods?.length ? `<i class="modc" title="Modifiers">+${inst.mods.length}</i>` : ''}</span>` +
+    `<span class="flash"></span>`;
   e.title = `${d.name} ${LV[inst.level - 1]}`;
   return e;
 }
@@ -184,14 +196,16 @@ function showHelp() {
       <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
       <li><b>Shiny items.</b> Rarely an item rolls shiny. It multicasts: it fires ${SHINY_MULTICAST} times every time the bar hits it. Merging keeps the shine.</li>
-      <li><b>Infuse.</b> Buy an essence, click it, then click an item to add a second effect.</li>
+      <li><b>Modify.</b> Buy a modifier (like +3 Damage), click it below your bench, then click an item. Items hold level + 1 modifiers.</li>
+      <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
       <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before you lose ${START_LIVES} lives.</li>
     </ol>
     <h3>Effects</h3>
     <ul class="effects-key">
-      <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. Shield blocks it.</li>
-      <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
+      <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does half damage to Shield.</li>
+      <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades. Each Heal removes ${Math.round(HEAL_CLEANSE * 100)}% of it.</li>
+      <li><b class="k-time">Haste</b> speeds up your bar and <b class="k-slow">Slow</b> slows the enemy's. Items marked Battle start act the moment the fight begins.</li>
       <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
       <li><b class="k-storm">Storm</b> starts at ${OVERTIME}s and hits both sides harder and harder.</li>
     </ul>
@@ -242,11 +256,15 @@ function renderShop() {
       for (let k = 0; k < o.inst.w * o.inst.h; k++) shape.append(el('i'));
       c.append(shape);
       c.onmouseenter = c.onfocus = () => showInspector({ inst: o.inst, from: 'shop' });
+    } else if (o.kind === 'mod') {
+      const m = MODIFIERS[o.id];
+      c.classList.add('mod');
+      c.innerHTML = `<span class="o-ico">${m.icon}</span><span class="o-name">${m.name}</span><span class="o-meta">Modifier: ${m.stat ? `+${m.v} ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</span>`;
+      c.onmouseenter = c.onfocus = () => showInspector({ mod: o.id });
     } else {
-      const f = INFUSIONS[o.type];
       c.classList.add('essence');
-      c.innerHTML = `<span class="o-ico">${f.icon}</span><span class="o-name">${f.name}</span><span class="o-meta">Infuse: +${STAT_NAME[f.stat]}</span>`;
-      c.onmouseenter = c.onfocus = () => showInspector({ essence: o.type });
+      c.innerHTML = `<span class="o-ico">${WILD_ESSENCE.icon}</span><span class="o-name">${WILD_ESSENCE.name}</span><span class="o-meta">Random infusion</span>`;
+      c.onmouseenter = c.onfocus = () => showInspector({ essence: true });
     }
     if (o.frozen && !o.sold) c.classList.add('was-frozen');
     if (S.frozen && !o.sold) c.classList.add('frozen');
@@ -281,13 +299,15 @@ function renderShop() {
   const sell = el('div', 'sell-zone', 'Drop here to sell'); sell.id = 'sell';
   benchRow.append(bench, sell);
   stash.append(benchRow);
-  if (S.essences.length) {
+  if (S.consumables.length) {
     const er = el('div', 'essences');
-    er.append(el('span', 'hint', 'Essences: click one, then click an item.'));
-    S.essences.forEach((t, i) => {
-      const b = el('button', 'ess-chip' + (S.pendingEssence === i ? ' active' : ''), `${INFUSIONS[t].icon} ${INFUSIONS[t].name}`);
+    er.append(el('span', 'hint', 'To use: click one, then click an item.'));
+    S.consumables.forEach((c, i) => {
+      const label = c.kind === 'mod' ? `${MODIFIERS[c.id].icon} ${MODIFIERS[c.id].name}` : `${WILD_ESSENCE.icon} ${WILD_ESSENCE.name}`;
+      const b = el('button', 'ess-chip' + (S.pending === i ? ' active' : ''), label);
       b.type = 'button';
-      b.onclick = () => { S.pendingEssence = S.pendingEssence === i ? null : i; render(); };
+      b.onclick = () => { S.pending = S.pending === i ? null : i; render(); };
+      b.onmouseenter = () => showInspector(c.kind === 'mod' ? { mod: c.id } : { essence: true });
       er.append(b);
     });
     stash.append(er);
@@ -322,9 +342,10 @@ function rulesHtml() {
   return `<h3>How a fight works</h3>
   <ul>
     <li>A bar sweeps your 10 columns, ${COL_TIME}s per column. When it reaches an item's left edge, that item activates.</li>
-    <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. Shield blocks it.</li>
-    <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
+    <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does half damage to Shield.</li>
+    <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades. Each Heal removes ${Math.round(HEAL_CLEANSE * 100)}% of it.</li>
     <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
+    <li><b class="k-time">Haste</b> speeds up your bar, <b class="k-slow">Slow</b> slows the enemy's. Some items act at battle start.</li>
     <li>After ${OVERTIME}s a <b class="k-storm">storm</b> hits both sides every ${BURN_TICK}s like a weapon, so Shield blocks it. It starts at ${STORM_BASE} and each hit is ${Math.round((STORM_GROWTH - 1) * 100)}% bigger.</li>
   </ul>`;
 }
@@ -333,16 +354,23 @@ const findOwned = u => S.board.find(o => o.uid === u) || S.bench.find(o => o.uid
 
 function showInspector(target) {
   const p = $('.inspector'); if (!p) return;
-  if (!target || (!target.inst && !target.essence)) {
-    const pend = S.pendingEssence != null ? `<p class="callout">Click an item on your board or bench to infuse it.</p>` : '';
+  if (!target || (!target.inst && !target.essence && !target.mod)) {
+    const pend = S.pending != null ? `<p class="callout">Click an item on your board or bench to use it on.</p>` : '';
     p.innerHTML = `<h3>Inspector</h3><p class="muted">Hover an item to see what it does. Click one of yours to rotate or sell it.</p>${pend}`;
     return;
   }
   if (target.essence) {
-    const f = INFUSIONS[target.essence];
-    p.innerHTML = `<div class="ins-h"><span class="ins-ico">${f.icon}</span><div><h3>${f.name}</h3><span class="chip">Essence</span></div></div>
-      <ul class="effects"><li class="s-${f.stat}">Infuse an item: ${STAT_TEXT[f.stat](prog(f.v, -1))}, by the item's level</li>
-      <li>The item also gains the ${TAG_NAME[f.tag]} tag. Replaces any existing infusion.</li></ul>`;
+    const outcomes = Object.values(INFUSIONS).map(f => `<li class="s-${f.stat}">${f.icon} ${STAT_TEXT[f.stat](prog(f.v, -1))}</li>`).join('');
+    p.innerHTML = `<div class="ins-h"><span class="ins-ico">${WILD_ESSENCE.icon}</span><div><h3>${WILD_ESSENCE.name}</h3><span class="chip">Essence</span></div></div>
+      <p class="muted">Gives an item one random infusion (by its level), plus that tag. Replaces any infusion it has.</p>
+      <ul class="effects">${outcomes}</ul>`;
+    return;
+  }
+  if (target.mod) {
+    const m = MODIFIERS[target.mod];
+    p.innerHTML = `<div class="ins-h"><span class="ins-ico">${m.icon}</span><div><h3>${m.name}</h3><span class="chip">Modifier</span></div></div>
+      <ul class="effects"><li class="s-${m.stat || 'multicast'}">${m.stat ? `Add <span class="cur">+${m.v}</span> ${STAT_NAME[m.stat]} to an item, and the ${TAG_NAME[m.tag]} tag` : `Add +${m.multicast} multicast to an item`}</li>
+      <li>Permanent. An item holds level + 1 modifiers, and they carry over when you merge.</li></ul>`;
     return;
   }
   const inst = target.inst, d = def(inst);
@@ -358,7 +386,7 @@ function showInspector(target) {
     actions = `<div class="ins-actions">${up}${rot}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
   }
   p.innerHTML = `<div class="ins-h r-${d.rarity}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name} <small>${LV[inst.level - 1]}</small></h3>
-    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span>${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
+    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span><span class="chip">Mods ${inst.mods?.length || 0}/${modSlots(inst)}</span>${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
     <div class="tags">${tags}</div><ul class="effects">${describe(inst) || '<li class="muted">No active effect.</li>'}</ul>${mergeHint}${actions}`;
   const sl = $('#btn-sell', p);
   if (sl) sl.onclick = () => sellInst(inst);
@@ -374,7 +402,7 @@ function buy(idx) {
   if (o.kind === 'item') {
     if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
     S.bench.push(o.inst);
-  } else S.essences.push(o.type);
+  } else S.consumables.push(o.kind === 'mod' ? { kind: 'mod', id: o.id } : { kind: 'essence' });
   S.gold -= o.price; o.sold = true; render();
 }
 function sellInst(inst) {
@@ -477,10 +505,18 @@ function onDragEnd() {
   render();
 }
 function clickItem(inst) {
-  if (S.pendingEssence != null) {
-    inst.infusion = S.essences[S.pendingEssence];
-    S.essences.splice(S.pendingEssence, 1); S.pendingEssence = null;
-    toast(`${def(inst).name} infused with ${INFUSIONS[inst.infusion].name}`);
+  if (S.pending != null) {
+    const c = S.consumables[S.pending];
+    if (c.kind === 'mod') {
+      const why = canApplyMod(inst, c.id);
+      if (why) { toast(why); S.selected = inst.uid; return render(); }
+      applyMod(inst, c.id);
+      toast(`${MODIFIERS[c.id].name} added to ${def(inst).name}`);
+    } else {
+      inst.infusion = rollInfusion(rng, inst.infusion);
+      toast(`${def(inst).name} rolled ${INFUSIONS[inst.infusion].name}!`);
+    }
+    S.consumables.splice(S.pending, 1); S.pending = null;
   }
   S.selected = inst.uid; render();
 }
@@ -501,7 +537,7 @@ function startBattle() {
   S.mySnapshot = snapshot(S.board);
   const hp = maxHp(S.day);
   S.battle = new Battle(new Fighter('You', S.board, hp), new Fighter(opp.name, fromSnapshot(opp.items), hp), onFx);
-  S.selected = null; S.pendingEssence = null;
+  S.selected = null; S.pending = null;
   S.phase = 'pvp'; render();
 }
 function oppLabel(o) {
@@ -564,6 +600,8 @@ function updateBattle(acc) {
     if (F.burn) st.push(`<span class="st burn">🔥 ${F.burn}</span>`);
     if (F.poison) st.push(`<span class="st poison">☠️ ${F.poison}</span>`);
     if (F.regen) st.push(`<span class="st regen">🌱 ${F.regen}</span>`);
+    if (F.hasteNow(B.t)) st.push(`<span class="st haste">⏩ hasted</span>`);
+    if (F.slowNow(B.t)) st.push(`<span class="st slow">🐌 slowed</span>`);
     $('.status', U.head).innerHTML = st.join('');
     const alive = new Set();
     for (const bar of F.bars) {

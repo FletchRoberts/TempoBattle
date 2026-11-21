@@ -1,10 +1,10 @@
 // A bot that plays a whole run through the real shop rules and records its board each day.
 // Those daily boards seed the PvP opponent pool until real players fill it.
-import { INFUSIONS } from '../data/items.js';
+import { MODIFIERS } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, freeSpots, rollShop, rerollCost,
-  canMerge, mergeInto, sellValue, income, starterBoard, snapshot, maxHp,
+  canMerge, mergeInto, sellValue, income, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 
@@ -16,7 +16,7 @@ export function itemValue(inst, board, arch) {
   const d = def(inst);
   let aff = 0;
   for (const t of tagsOf(inst)) aff = Math.max(aff, arch.tags[t] ?? 0.3);
-  let v = POWER[d.rarity] * (1 + 0.6 * (inst.level - 1)) * aff * (inst.multicast || 1);
+  let v = (POWER[d.rarity] * (1 + 0.6 * (inst.level - 1)) * aff + 0.4 * (inst.mods?.length || 0)) * (inst.multicast || 1);
   const sp = d.special, others = board.filter(o => o !== inst);
   if (sp?.kind === 'buffAdj' || sp?.kind === 'buffAll') {
     const n = others.filter(o => tagsOf(o).has(sp.tag)).length;
@@ -88,13 +88,30 @@ function acquire(st, inst, value, arch) {
   return false;
 }
 
+const copyItem = o => ({ ...o, mods: [...(o.mods || [])] });
+const byValue = (board, arch) => (a, b) => itemValue(b, board, arch) - itemValue(a, board, arch);
+
+// Items a modifier could go on, best first (prefers items that already use that stat).
+function modTargets(board, modId, arch) {
+  const m = MODIFIERS[modId];
+  return board.filter(b => !canApplyMod(b, modId))
+    .sort((a, b) => ((m.stat && statsOf(b)[m.stat] ? 1 : 0) - (m.stat && statsOf(a)[m.stat] ? 1 : 0)) || byValue(board, arch)(a, b));
+}
+const modAppeal = (modId, arch) => MODIFIERS[modId].multicast ? 3 : (arch.tags[MODIFIERS[modId].tag] ?? 0.3) * 1.2;
+// Wild Essence: the outcome is random, so bots decide on gut feel and only then see the roll.
+function useWildEssence(board, arch, rng) {
+  const target = board.filter(b => !b.infusion && !def(b).special).sort(byValue(board, arch))[0];
+  if (target) target.infusion = rollInfusion(rng);
+  return !!target;
+}
+
 // Smart shopping: try each possible purchase, simulate the resulting board against a
 // benchmark sample of that day's teams, and take the best improvement until nothing helps.
 function shopDaySimulated(st, day, arch, skill, rng, bench) {
   const hp = maxHp(day);
   const pts = { win: 1, draw: 0.5, loss: 0 };
   const evalBoard = board => bench.reduce((s, opp) => s + pts[simulate(board, opp, hp)], 0) / bench.length;
-  const clone = () => ({ gold: st.gold, board: st.board.map(o => ({ ...o })) });
+  const clone = () => ({ gold: st.gold, board: st.board.map(copyItem) });
   let cur = evalBoard(st.board);
   for (let rerolls = 0; ; rerolls++) {
     const offers = rollShop(day, rng);
@@ -108,17 +125,21 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
       for (const o of offers) {
         if (o.sold || o.price > st.gold) continue;
         const trial = clone(); trial.gold -= o.price;
-        if (o.kind === 'essence') {
-          const targets = trial.board.filter(b => !b.infusion && !def(b).special)
-            .sort((a, b) => itemValue(b, trial.board, arch) - itemValue(a, trial.board, arch)).slice(0, 2);
-          for (const target of targets) {
-            const t2 = { gold: trial.gold, board: trial.board.map(b => b === target ? { ...b, infusion: o.type } : { ...b }) };
+        if (o.kind === 'essence') continue; // random outcome: handled after the simulated buys
+        if (o.kind === 'mod') {
+          for (const target of modTargets(trial.board, o.id, arch).slice(0, 2)) {
+            const t2 = { gold: trial.gold, board: trial.board.map(copyItem) };
+            applyMod(t2.board[trial.board.indexOf(target)], o.id);
             consider(t2, () => { o.sold = true; });
           }
-        } else if (acquire(trial, { ...o.inst }, Infinity, arch)) consider(trial, () => { o.sold = true; });
+        } else if (acquire(trial, copyItem(o.inst), Infinity, arch)) consider(trial, () => { o.sold = true; });
       }
       if (!best || best.sc <= cur + 0.005) break;
       st.gold = best.trial.gold; st.board = best.trial.board; cur = best.sc; best.apply();
+    }
+    const wild = offers.find(o => o.kind === 'essence' && !o.sold);
+    if (wild && st.gold >= wild.price + 3 && rng.chance(0.6) && useWildEssence(st.board, arch, rng)) {
+      st.gold -= wild.price; wild.sold = true; cur = evalBoard(st.board);
     }
     if (rerolls >= skill.rerolls || st.gold < rerollCost(rerolls) + 3) break;
     st.gold -= rerollCost(rerolls);
@@ -128,17 +149,18 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
 function shopDay(st, day, arch, skill, rng) {
   for (let rerolls = 0; ; rerolls++) {
     const offers = rollShop(day, rng).map(o => {
-      if (o.kind === 'essence') return { o, s: (arch.tags[INFUSIONS[o.type].tag] ?? 0.3) * 1.5 + rng.next() * skill.noise };
+      if (o.kind === 'essence') return { o, s: 1 + rng.next() * skill.noise };
+      if (o.kind === 'mod') return { o, s: modAppeal(o.id, arch) + rng.next() * skill.noise };
       const twin = st.board.some(b => canMerge(b, o.inst));
       return { o, s: itemValue(o.inst, st.board, arch) + (twin ? 1.5 : 0) + rng.next() * skill.noise };
     }).sort((a, b) => b.s - a.s);
 
     for (const { o, s } of offers) {
       if (o.price > st.gold || s < 0.8) continue;
-      if (o.kind === 'essence') {
-        const target = st.board.filter(b => !b.infusion && !def(b).special)
-          .sort((a, b) => itemValue(b, st.board, arch) - itemValue(a, st.board, arch))[0];
-        if (target) { target.infusion = o.type; st.gold -= o.price; }
+      if (o.kind === 'essence') { if (useWildEssence(st.board, arch, rng)) st.gold -= o.price; continue; }
+      if (o.kind === 'mod') {
+        const target = modTargets(st.board, o.id, arch)[0];
+        if (target) { applyMod(target, o.id); st.gold -= o.price; }
         continue;
       }
       if (acquire(st, o.inst, s, arch)) st.gold -= o.price;

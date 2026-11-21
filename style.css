@@ -296,9 +296,11 @@ button { font: inherit; color: inherit; }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 
 /* ---------- Shiny / multicast, freeze, merging ---------- */
-:root { --shiny: #fff1a8; }
-.item .mc { position: absolute; top: 6px; left: 7px; font-family: var(--f-mono); font-size: 10px; font-weight: 600; color: var(--bg);
-  background: var(--shiny); border-radius: 3px; padding: 0 3px; line-height: 14px; z-index: 1; }
+:root { --shiny: #fff1a8; --c-mod: #9fd0c8; --c-slow: #7fb2ff; }
+.item .badges { position: absolute; top: 6px; left: 7px; display: flex; flex-direction: column; gap: 2px; z-index: 1; }
+.item .badges i { font-style: normal; font-family: var(--f-mono); font-size: 10px; font-weight: 600; border-radius: 3px; padding: 0 3px; line-height: 14px; }
+.item .mc { color: var(--bg); background: var(--shiny); }
+.item .modc { color: var(--bg); background: var(--c-mod); }
 .item.shiny::before { background: linear-gradient(115deg, var(--panel-2) 30%, rgba(255, 241, 168, 0.22) 45%, var(--panel-2) 60%) 0 0 / 300% 100%;
   animation: shine 2.8s linear infinite; }
 @keyframes shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
@@ -314,3 +316,13 @@ button { font: inherit; color: inherit; }
 .item.merge-target::before { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .merge-hint { margin: 0; font-size: 12px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .item.shiny::before { animation: none; } }
+
+/* ---------- Modifiers, battle start, speed status ---------- */
+.offer.mod { border-top-color: var(--c-mod); }
+.offer.mod .o-meta { color: var(--c-mod); }
+.s-start { color: var(--fg); }
+.s-start b { color: var(--accent); font-weight: 600; }
+.modded { color: var(--c-mod); }
+.k-time { color: var(--c-time); } .k-slow { color: var(--c-slow); }
+.st.haste { color: var(--c-time); } .st.slow { color: var(--c-slow); }
+.f-slow { color: var(--c-slow); }
