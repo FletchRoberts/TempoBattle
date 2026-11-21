@@ -60,7 +60,13 @@ export class Battle {
         rem -= next - bar.pos; bar.pos = next;
         if (bar.pos >= COLS) { if (bar.temp) { bar.dead = true; break; } bar.pos = 0; }
         const hits = me.items.filter(o => o.x === bar.pos).sort((a, b) => a.y - b.y);
-        for (const inst of hits) this.activate(i, inst, bar);
+        for (const inst of hits) {
+          // Multicast: fire the item several times per hit (stops if it rewound this bar).
+          for (let k = 0; k < (inst.multicast || 1); k++) {
+            if (k > 0 && bar.jump) break;
+            this.activate(i, inst, bar);
+          }
+        }
         if (bar.jump) break;
       }
     }

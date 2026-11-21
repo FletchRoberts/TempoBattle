@@ -4,7 +4,7 @@ import { INFUSIONS } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, freeSpots, rollShop, rerollCost,
-  upgradeCost, sellValue, income, starterBoard, snapshot, maxHp,
+  canMerge, mergeInto, sellValue, income, starterBoard, snapshot, maxHp,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 
@@ -16,7 +16,7 @@ export function itemValue(inst, board, arch) {
   const d = def(inst);
   let aff = 0;
   for (const t of tagsOf(inst)) aff = Math.max(aff, arch.tags[t] ?? 0.3);
-  let v = POWER[d.rarity] * (1 + 0.6 * (inst.level - 1)) * aff;
+  let v = POWER[d.rarity] * (1 + 0.6 * (inst.level - 1)) * aff * (inst.multicast || 1);
   const sp = d.special, others = board.filter(o => o !== inst);
   if (sp?.kind === 'buffAdj' || sp?.kind === 'buffAll') {
     const n = others.filter(o => tagsOf(o).has(sp.tag)).length;
@@ -72,8 +72,12 @@ function placeAnywhere(board, inst) {
 
 // Try to add a bought item: merge into a twin, place it, or swap out the weakest item.
 function acquire(st, inst, value, arch) {
-  const twin = st.board.find(o => o.id === inst.id && o.level === inst.level && o.level < 4);
-  if (twin) { twin.level++; if (!twin.infusion) twin.infusion = inst.infusion; return true; }
+  const twin = st.board.find(o => canMerge(o, inst));
+  if (twin) {
+    mergeInto(twin, inst);
+    for (let o; (o = st.board.find(x => canMerge(x, twin)));) { mergeInto(twin, o); st.board.splice(st.board.indexOf(o), 1); }
+    return true;
+  }
   if (placeAnywhere(st.board, inst)) return true;
   const ranked = [...st.board].sort((a, b) => itemValue(a, st.board, arch) - itemValue(b, st.board, arch));
   for (const weak of ranked.slice(0, 3)) {
@@ -84,7 +88,7 @@ function acquire(st, inst, value, arch) {
   return false;
 }
 
-// Smart shopping: try each possible purchase/upgrade, simulate the resulting board against a
+// Smart shopping: try each possible purchase, simulate the resulting board against a
 // benchmark sample of that day's teams, and take the best improvement until nothing helps.
 function shopDaySimulated(st, day, arch, skill, rng, bench) {
   const hp = maxHp(day);
@@ -113,13 +117,6 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
           }
         } else if (acquire(trial, { ...o.inst }, Infinity, arch)) consider(trial, () => { o.sold = true; });
       }
-      const upgradable = st.board.filter(it => it.level < 4 && upgradeCost(it) <= st.gold)
-        .sort((a, b) => itemValue(b, st.board, arch) - itemValue(a, st.board, arch)).slice(0, 3);
-      if (skill.upgrades) for (const it of upgradable) {
-        const trial = clone(); const t = trial.board.find(b => b.uid === it.uid);
-        trial.gold -= upgradeCost(it); t.level++;
-        consider(trial, () => {});
-      }
       if (!best || best.sc <= cur + 0.005) break;
       st.gold = best.trial.gold; st.board = best.trial.board; cur = best.sc; best.apply();
     }
@@ -132,7 +129,7 @@ function shopDay(st, day, arch, skill, rng) {
   for (let rerolls = 0; ; rerolls++) {
     const offers = rollShop(day, rng).map(o => {
       if (o.kind === 'essence') return { o, s: (arch.tags[INFUSIONS[o.type].tag] ?? 0.3) * 1.5 + rng.next() * skill.noise };
-      const twin = st.board.some(b => b.id === o.inst.id && b.level === o.inst.level && b.level < 4);
+      const twin = st.board.some(b => canMerge(b, o.inst));
       return { o, s: itemValue(o.inst, st.board, arch) + (twin ? 1.5 : 0) + rng.next() * skill.noise };
     }).sort((a, b) => b.s - a.s);
 
@@ -148,14 +145,6 @@ function shopDay(st, day, arch, skill, rng) {
     }
     if (rerolls >= skill.rerolls || st.gold < rerollCost(rerolls) + 3) break;
     st.gold -= rerollCost(rerolls);
-  }
-  if (skill.upgrades) {
-    for (;;) {
-      const options = st.board.filter(o => o.level < 4 && upgradeCost(o) <= st.gold)
-        .sort((a, b) => itemValue(b, st.board, arch) - itemValue(a, st.board, arch));
-      if (!options.length) break;
-      st.gold -= upgradeCost(options[0]); options[0].level++;
-    }
   }
 }
 

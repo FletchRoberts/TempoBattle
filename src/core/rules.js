@@ -5,6 +5,10 @@ export const COLS = 10, ROWS = 3;
 export const BENCH_MAX = 8, START_LIVES = 4, WINS_TO_CLEAR = 10, START_GOLD = 12;
 export const MAX_DAYS = START_LIVES + WINS_TO_CLEAR - 1; // longest possible run
 export const SHOP_ITEMS = 5;
+// Shiny items roll in the shop now and then: they multicast (fire extra times per bar hit).
+export const SHINY_MULTICAST = 2;
+export const shinyChance = day => Math.min(0.08, 0.02 + day * 0.005);
+export const SHINY_PRICE_MULT = 2;
 export const LV = ['I', 'II', 'III', 'IV'];
 
 // What happens on each day, in order. 'encounter' is a placeholder slot for events / PvE.
@@ -21,11 +25,19 @@ export const uid = () => uidSeq++;
 export const def = inst => ITEMS[inst.id];
 export function newInst(id, level = 1) {
   const d = ITEMS[id];
-  return { uid: uid(), id, level, infusion: null, w: d.w, h: d.h, x: -1, y: -1 };
+  return { uid: uid(), id, level, infusion: null, multicast: d.multicast || 1, w: d.w, h: d.h, x: -1, y: -1 };
 }
-export const priceOf = inst => RARITY[def(inst).rarity].price * inst.level;
+export const isShiny = inst => inst.multicast > (def(inst).multicast || 1);
+export const priceOf = inst => RARITY[def(inst).rarity].price * inst.level * (isShiny(inst) ? SHINY_PRICE_MULT : 1);
 export const sellValue = inst => Math.max(1, Math.floor(priceOf(inst) / 2));
-export const upgradeCost = inst => RARITY[def(inst).rarity].price * (inst.level + 1);
+// Levels only go up by merging: two copies of the same item at the same level make one at the next.
+export const canMerge = (a, b) => a !== b && a.id === b.id && a.level === b.level && a.level < 4;
+export function mergeInto(target, src) {
+  target.level++;
+  target.multicast = Math.max(target.multicast, src.multicast); // shiny survives the merge
+  if (!target.infusion && src.infusion) target.infusion = src.infusion;
+  return target;
+}
 export const rerollCost = n => 1 + n;
 export const maxHp = day => 40 + 10 * (day - 1);
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
@@ -58,6 +70,7 @@ export function rollShop(day, rng) {
   for (let i = 0; i < SHOP_ITEMS; i++) {
     const level = day > 3 && rng.chance(Math.min(0.35, (day - 3) * 0.06)) ? 2 : 1;
     const inst = newInst(rollItemId(day, rng), level);
+    if (rng.chance(shinyChance(day))) inst.multicast = Math.max(inst.multicast, SHINY_MULTICAST);
     offers.push({ kind: 'item', inst, price: priceOf(inst), sold: false });
   }
   const ess = rng.shuffle(Object.keys(INFUSIONS)).slice(0, day >= 2 ? 2 : 1);
@@ -99,7 +112,7 @@ export function freeSpots(board, w, h) {
 }
 
 // ---------- Snapshots (what gets stored in the opponent pool) ----------
-// Compact form: [id, level, x, y, w, h, infusion|0]
-export const snapshot = board => board.map(o => [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0]);
-export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf]) =>
-  ({ uid: uid(), id, level, x, y, w, h, infusion: inf || null }));
+// Compact form: [id, level, x, y, w, h, infusion|0, multicast]
+export const snapshot = board => board.map(o => [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0, o.multicast || 1]);
+export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf, mc]) =>
+  ({ uid: uid(), id, level, x, y, w, h, infusion: inf || null, multicast: mc || ITEMS[id].multicast || 1 }));

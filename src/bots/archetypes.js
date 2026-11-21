@@ -13,10 +13,10 @@ export const ARCHETYPES = {
 // How well a bot plays. noise = randomness in its judgement, rerolls = shop rerolls per day,
 // lookahead = how many sample opponents it simulates against when choosing buys (0 = gut feel only).
 export const SKILLS = {
-  novice: { noise: 2.2, rerolls: 0, upgrades: false, lookahead: 0 },
-  casual: { noise: 1.2, rerolls: 1, upgrades: true, lookahead: 0 },
-  solid:  { noise: 0.5, rerolls: 2, upgrades: true, lookahead: 3 },
-  expert: { noise: 0.15, rerolls: 3, upgrades: true, lookahead: 6 },
+  novice: { noise: 2.2, rerolls: 1, lookahead: 0 },
+  casual: { noise: 1.2, rerolls: 3, lookahead: 0 },
+  solid:  { noise: 0.5, rerolls: 4, lookahead: 3 },
+  expert: { noise: 0.15, rerolls: 6, lookahead: 6 },
 };
 
 const FIRST = ['Ash', 'Bog', 'Brass', 'Cinder', 'Dusk', 'Ember', 'Fen', 'Gilt', 'Grave', 'Iron', 'Lantern', 'Marsh',

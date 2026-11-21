@@ -2,7 +2,7 @@
 
 An async-PvP auto-battler. You place items on a 3 × 10 grid. During a fight a bar sweeps the grid
 column by column like a video-editor playhead, and each item activates when the bar reaches its
-left edge. Between fights you shop, merge and upgrade items, and infuse them with other types.
+left edge. Between fights you shop, merge items to level them up, and infuse them with other types.
 
 ## Run it
 
@@ -32,7 +32,10 @@ game skips straight to the fight for now.
 | Poison | Deals its stacks every 1s, ignores Shield, never fades. |
 | Regen | Heals its stacks every 1s. |
 | Storm | After 30s both sides take a weapon-like hit every 0.5s (the Burn tick); Shield absorbs it first. It starts at 2 and each hit is 25% bigger (`OVERTIME`, `STORM_BASE`, `STORM_GROWTH`). Hard draw at 120s. |
-| Levels | I–IV. Merge two identical items of the same level, or pay to upgrade. |
+| Levels | I–IV. The only way up is merging: two identical items of the same level make one item a level higher. |
+| Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
+| Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): multicast ×2, double price. Merging keeps it. |
+| Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
 | Run | 4 lives, 10 wins to clear, so at most 13 days. |
 
@@ -45,7 +48,7 @@ pool, bots supply those boards.
    and a skill level, and plays through the same shop, gold and level rules as you, saving its
    board every day.
    - **Novice and casual bots** buy on heuristics with a lot of randomness, so they make plausible but weaker boards.
-   - **Solid and expert bots** test every buy, upgrade and essence by simulating the result against
+   - **Solid and expert bots** test every buy and essence by simulating the result against
      a sample of that day's boards, and keep whatever wins most.
 2. **Every day is rated by round robin** (`src/bots/pool.js`). Each team fights every other team from
    both seats (side 0 acts first in a tick), and its win rate against the field becomes `wr`.

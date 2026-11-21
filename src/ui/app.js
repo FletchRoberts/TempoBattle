@@ -2,8 +2,8 @@
 import { RARITY, INFUSIONS, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
-  COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS,
-  def, priceOf, sellValue, upgradeCost, rerollCost, maxHp, income, starterBoard, rollShop,
+  COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_MULTICAST,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT } from '../core/sim.js';
@@ -29,7 +29,7 @@ function newRun() {
   rng = makeRng(Date.now());
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
-    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0,
+    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false,
     board: starterBoard(), bench: [], essences: [], shop: [], faced: new Set(), history: [],
     selected: null, pendingEssence: null, battle: null, opponent: null, over: false,
   };
@@ -53,7 +53,15 @@ function nextDay(result) {
   if (result === 'loss') S.lives--;
   if (S.lives <= 0 || S.wins >= WINS_TO_CLEAR) { S.over = true; S.phase = 'over'; return render(); }
   S.gold += income(S.day, result === 'win');
-  S.day++; S.rerolls = 0; S.shop = rollShop(S.day, rng); S.phase = 'shop';
+  S.day++; S.rerolls = 0; S.phase = 'shop';
+  // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
+  const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
+  const fresh = rollShop(S.day, rng);
+  const keptItems = kept.filter(o => o.kind === 'item'), keptEss = kept.filter(o => o.kind === 'essence');
+  const items = fresh.filter(o => o.kind === 'item'), ess = fresh.filter(o => o.kind === 'essence');
+  S.shop = [...keptItems.map(o => ({ ...o, frozen: true })), ...items.slice(keptItems.length),
+    ...keptEss.map(o => ({ ...o, frozen: true })), ...ess.slice(keptEss.length)];
+  S.frozen = false;
   render();
 }
 
@@ -66,6 +74,7 @@ function describe(inst) {
   for (const k of STAT_ORDER) if (d.effects?.[k]) lines.push(`<li class="s-${k}">${STAT_TEXT[k](prog(d.effects[k], L))}</li>`);
   if (d.special) { const SP = SPECIALS[d.special.kind]; lines.push(`<li class="s-special">${SP.text(d.special, prog(d.special.v, L, SP.fmt))}</li>`); }
   if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](prog(f.v, L))}</li>`); }
+  if (inst.multicast > 1) lines.push(`<li class="s-multicast">Multicast <span class="cur">×${inst.multicast}</span>: fires ${inst.multicast} times each time the bar hits it</li>`);
   return lines.join('');
 }
 
@@ -81,14 +90,15 @@ function setCell() {
 
 function itemEl(inst, scale = 'cell') {
   const d = def(inst);
-  const e = el('div', `item r-${d.rarity} t-${d.tags[0]}`);
+  const e = el('div', `item r-${d.rarity} t-${d.tags[0]}${isShiny(inst) ? ' shiny' : ''}`);
   e.dataset.uid = inst.uid;
   e.style.width = `calc(var(--${scale}) * ${inst.w})`;
   e.style.height = `calc(var(--${scale}) * ${inst.h})`;
   if (inst.x >= 0 && scale === 'cell') { e.style.left = `calc(var(--cell) * ${inst.x})`; e.style.top = `calc(var(--cell) * ${inst.y})`; }
   const pips = [0, 1, 2, 3].map(i => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('');
   e.innerHTML = `<span class="ico">${d.icon}</span><span class="pips">${pips}</span>` +
-    (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') + `<span class="flash"></span>`;
+    (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') +
+    (inst.multicast > 1 ? `<span class="mc">×${inst.multicast}</span>` : '') + `<span class="flash"></span>`;
   e.title = `${d.name} ${LV[inst.level - 1]}`;
   return e;
 }
@@ -171,7 +181,9 @@ function showHelp() {
       <li><b>Shop.</b> Click an item to buy it. It goes to your bench.</li>
       <li><b>Place it.</b> Drag it onto the 3 × 10 grid. Press R while dragging, or use Rotate in the inspector, to turn it.</li>
       <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
-      <li><b>Combine.</b> Drop an item on an identical one of the same level to merge it up a level (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
+      <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
+      <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
+      <li><b>Shiny items.</b> Rarely an item rolls shiny. It multicasts: it fires ${SHINY_MULTICAST} times every time the bar hits it. Merging keeps the shine.</li>
       <li><b>Infuse.</b> Buy an essence, click it, then click an item to add a second effect.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
       <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before you lose ${START_LIVES} lives.</li>
@@ -214,7 +226,7 @@ function renderShop() {
   const left = el('div', 'col-main'), right = el('aside', 'col-side');
 
   const offers = el('section', 'panel offers');
-  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="hint">Click to buy. Drop a duplicate on its twin to level it up.</span>`));
+  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="hint">Click to buy. Drop an item on its twin to level it up.</span>`));
   const row = el('div', 'offer-row');
   S.shop.forEach((o, idx) => {
     const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (o.price > S.gold && !o.sold ? ' poor' : ''));
@@ -222,7 +234,9 @@ function renderShop() {
     if (o.kind === 'item') {
       const d = def(o.inst);
       c.classList.add('r-' + d.rarity);
-      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-meta"><b class="rar">${RARITY[d.rarity].name}</b> ${LV[o.inst.level - 1]}</span>`;
+      if (isShiny(o.inst)) c.classList.add('shiny');
+      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-meta"><b class="rar">${RARITY[d.rarity].name}</b> ${LV[o.inst.level - 1]}` +
+        `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}</span>`;
       const shape = el('span', 'shape');
       shape.style.gridTemplateColumns = `repeat(${o.inst.w}, 8px)`;
       for (let k = 0; k < o.inst.w * o.inst.h; k++) shape.append(el('i'));
@@ -234,6 +248,8 @@ function renderShop() {
       c.innerHTML = `<span class="o-ico">${f.icon}</span><span class="o-name">${f.name}</span><span class="o-meta">Infuse: +${STAT_NAME[f.stat]}</span>`;
       c.onmouseenter = c.onfocus = () => showInspector({ essence: o.type });
     }
+    if (o.frozen && !o.sold) c.classList.add('was-frozen');
+    if (S.frozen && !o.sold) c.classList.add('frozen');
     c.append(el('span', 'price', o.sold ? 'Sold' : `${o.price}g`));
     c.onclick = () => buy(idx);
     row.append(c);
@@ -241,8 +257,14 @@ function renderShop() {
   offers.append(row);
   const reroll = el('button', 'btn ghost', `Reroll · ${rerollCost(S.rerolls)}g`); reroll.type = 'button';
   reroll.disabled = S.gold < rerollCost(S.rerolls);
-  reroll.onclick = () => { const c = rerollCost(S.rerolls); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.shop = rollShop(S.day, rng); render(); };
-  const acts = el('div', 'offer-actions'); acts.append(reroll); offers.append(acts);
+  reroll.onclick = () => { const c = rerollCost(S.rerolls); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng); render(); };
+  const freeze = el('button', 'btn ghost freeze' + (S.frozen ? ' on' : ''), S.frozen ? '❄ Frozen' : 'Freeze shop'); freeze.type = 'button';
+  freeze.setAttribute('aria-pressed', S.frozen);
+  freeze.title = 'Keep the unsold offers for the next shop';
+  freeze.onclick = () => { S.frozen = !S.frozen; render(); };
+  const acts = el('div', 'offer-actions');
+  acts.append(el('span', 'hint', S.frozen ? 'Unsold offers stay for the next shop. Rerolling unfreezes.' : ''), freeze, reroll);
+  offers.append(acts);
 
   const boardP = el('section', 'panel board');
   boardP.append(el('header', 'panel-h', `<h2>Your loadout</h2><span class="hint">Drag to place. Press R while dragging to rotate. The bar triggers an item at its left edge.</span>`));
@@ -313,7 +335,7 @@ function showInspector(target) {
   const p = $('.inspector'); if (!p) return;
   if (!target || (!target.inst && !target.essence)) {
     const pend = S.pendingEssence != null ? `<p class="callout">Click an item on your board or bench to infuse it.</p>` : '';
-    p.innerHTML = `<h3>Inspector</h3><p class="muted">Hover an item to see what it does. Click one of yours to upgrade or sell it.</p>${pend}`;
+    p.innerHTML = `<h3>Inspector</h3><p class="muted">Hover an item to see what it does. Click one of yours to rotate or sell it.</p>${pend}`;
     return;
   }
   if (target.essence) {
@@ -325,19 +347,20 @@ function showInspector(target) {
   }
   const inst = target.inst, d = def(inst);
   const tags = [...tagsOf(inst)].map(t => `<span class="tag t-${t}">${TAG_NAME[t]}</span>`).join('');
-  let actions = '';
+  let actions = '', mergeHint = '';
   if (target.from === 'owned') {
-    const up = inst.level < 4
-      ? `<button type="button" class="btn" id="btn-up" ${S.gold < upgradeCost(inst) ? 'disabled' : ''}>Upgrade to ${LV[inst.level]} · ${upgradeCost(inst)}g</button>`
-      : `<span class="chip">Max level</span>`;
+    const twins = [...S.board, ...S.bench].filter(o => canMerge(o, inst)).length;
+    const up = inst.level >= 4 ? `<span class="chip">Max level</span>` : '';
+    mergeHint = inst.level >= 4 ? '' : `<p class="merge-hint">${twins
+      ? `You own another ${d.name} ${LV[inst.level - 1]}. Drag one onto the other to make it ${LV[inst.level]}.`
+      : `Merge with another ${d.name} ${LV[inst.level - 1]} to reach ${LV[inst.level]}.`}</p>`;
     const rot = inst.w !== inst.h ? `<button type="button" class="btn ghost" id="btn-rot">Rotate</button>` : '';
     actions = `<div class="ins-actions">${up}${rot}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
   }
   p.innerHTML = `<div class="ins-h r-${d.rarity}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name} <small>${LV[inst.level - 1]}</small></h3>
-    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span></div></div>
-    <div class="tags">${tags}</div><ul class="effects">${describe(inst) || '<li class="muted">No active effect.</li>'}</ul>${actions}`;
-  const up = $('#btn-up', p), sl = $('#btn-sell', p);
-  if (up) up.onclick = () => { const c = upgradeCost(inst); if (S.gold < c) return; S.gold -= c; inst.level++; render(); };
+    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span>${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
+    <div class="tags">${tags}</div><ul class="effects">${describe(inst) || '<li class="muted">No active effect.</li>'}</ul>${mergeHint}${actions}`;
+  const sl = $('#btn-sell', p);
   if (sl) sl.onclick = () => sellInst(inst);
   const rt = $('#btn-rot', p);
   if (rt) rt.onclick = () => {
@@ -404,8 +427,12 @@ function updateDrop(px, py) {
   drag.ghost.style.left = (px - (drag.gx + 0.5) * CELL) + 'px';
   drag.ghost.style.top = (py - (drag.gy + 0.5) * CELL) + 'px';
   const prev = boardTarget.ghost; prev.hidden = true; drag.drop = null;
+  document.querySelectorAll('.merge-target').forEach(n => n.classList.remove('merge-target'));
   const hovered = document.elementsFromPoint(px, py);
   if (hovered.some(n => n.id === 'sell')) { drag.drop = { kind: 'sell' }; return; }
+  const benchNode = hovered.find(n => n.classList?.contains('item') && n.closest('#bench'));
+  const benchTwin = benchNode && S.bench.find(o => o.uid === +benchNode.dataset.uid);
+  if (benchTwin && canMerge(benchTwin, drag.inst)) { benchNode.classList.add('merge-target'); drag.drop = { kind: 'merge', target: benchTwin }; return; }
   if (hovered.some(n => n.id === 'bench')) { drag.drop = { kind: 'bench' }; return; }
   const gr = boardTarget.grid.getBoundingClientRect();
   if (px < gr.left || px > gr.right || py < gr.top || py > gr.bottom) return;
@@ -415,7 +442,7 @@ function updateDrop(px, py) {
     prev.className = 'drop-preview ' + cls; prev.hidden = false;
   };
   const under = itemAt(S.board, cx, cy);
-  if (under && under !== drag.inst && under.id === drag.inst.id && under.level === drag.inst.level && under.level < 4) {
+  if (under && canMerge(under, drag.inst)) {
     drag.drop = { kind: 'merge', target: under };
     return box(under.x, under.y, under.w, under.h, 'merge');
   }
@@ -442,8 +469,7 @@ function onDragEnd() {
     return render();
   }
   if (drop.kind === 'merge') {
-    remove(); drop.target.level++;
-    if (!drop.target.infusion && inst.infusion) drop.target.infusion = inst.infusion;
+    remove(); mergeInto(drop.target, inst);
     S.selected = drop.target.uid; toast(`${def(inst).name} merged to level ${LV[drop.target.level - 1]}`);
     return render();
   }
