@@ -2,7 +2,7 @@
 // Later: swap this class for one that talks to a server; the game only uses field/pick/submit.
 import { pickOpponent, rateAgainst, buildPool } from '../bots/pool.js';
 
-const KEY = 'tempoforge.submissions.v2'; // v2: levels are rarity tiers
+const KEY = 'tempoforge.submissions.v3'; // v3: 3 x 5 board
 const MAX_LOCAL = 300;
 
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };

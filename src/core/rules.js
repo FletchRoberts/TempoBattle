@@ -2,7 +2,8 @@
 import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, SHOP_TOKENS } from '../data/items.js';
 import { ARTIFACTS, artifactEffects } from '../data/artifacts.js';
 
-export const COLS = 10, ROWS = 3;
+// 3 x 5 board: little spare space, so weak items have to be swapped out rather than kept around.
+export const COLS = 5, ROWS = 3;
 export const BENCH_MAX = 8, START_LIVES = 10, WINS_TO_CLEAR = 10, START_GOLD = 12;
 // Losing costs more lives as the run goes on.
 export const lifeLoss = day => (day <= 3 ? 1 : day <= 7 ? 2 : 3);

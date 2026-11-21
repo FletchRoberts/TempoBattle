@@ -1,6 +1,6 @@
 # Tempo Forge
 
-An async-PvP auto-battler. You place items on a 3 × 10 grid. During a fight a bar sweeps the grid
+An async-PvP auto-battler. You place items on a 3 × 5 grid. During a fight a bar sweeps the grid
 column by column like a video-editor playhead, and each item activates when the bar reaches its
 left edge. Between fights you shop, merge items to level them up, and infuse them with other types.
 
@@ -26,8 +26,8 @@ game skips straight to the fight for now.
 
 | | |
 |---|---|
-| Grid | 3 rows × 10 columns. Items are 1×1 up to 2×3 and can be rotated. |
-| Bar | 0.5s per column (`COL_TIME`). Items in the same column fire together, top to bottom. |
+| Grid | 3 rows × 5 columns (15 cells), so weak items have to be swapped out. Items are 1×1 up to 2×3 and can be rotated. |
+| Bar | 1s per column (`COL_TIME`), so a full pass is 5s. Items in the same column fire together, top to bottom. |
 | Burn | Deals its stacks every 0.5s, then loses 1. Against Shield it only does 80% damage (`BURN_VS_SHIELD`), so each Shield point blocks 1.25 Burn. |
 | Poison | Deals its stacks every 1s, ignores Shield, never fades. |
 | Regen | Heals its stacks every 1s. |

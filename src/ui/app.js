@@ -221,7 +221,8 @@ let CELL = 60;
 function setCell() {
   const w = Math.min(document.documentElement.clientWidth, 1180) - 32;
   const main = w > 900 ? w - 304 : w;
-  const cell = Math.max(30, Math.min(72, Math.floor((main - 58) / COLS)));
+  const cell = Math.max(30, Math.min(84, Math.floor((main - 58) / COLS)));
+  document.documentElement.style.setProperty('--cols', COLS);
   document.documentElement.style.setProperty('--cell', cell + 'px');
   return cell;
 }
@@ -284,8 +285,8 @@ function renderHud() {
 }
 
 // ===================== Title, help, menu =====================
-const DEMO = [['dagger', 2, 0, 1, 1, 1, 0], ['buckler', 1, 1, 0, 1, 2, 0], ['torch', 1, 3, 2, 1, 1, 0], ['bellows', 1, 4, 2, 1, 1, 0],
-  ['spring', 1, 5, 0, 2, 2, 0], ['hourglass', 1, 7, 2, 1, 1, 0], ['sword', 3, 8, 1, 2, 1, 'fire']];
+const DEMO = [['dagger', 2, 0, 1, 1, 1, 0], ['buckler', 1, 1, 0, 1, 2, 0], ['torch', 1, 1, 2, 1, 1, 0], ['bellows', 1, 2, 2, 1, 1, 0],
+  ['spring', 1, 2, 0, 2, 2, 0], ['hourglass', 1, 0, 0, 1, 1, 0], ['sword', 3, 3, 2, 2, 1, 'fire']];
 function renderTitle() {
   const v = $('#view'); v.innerHTML = ''; v.className = 'title';
   const hero = el('section', 'title-hero');
@@ -319,7 +320,7 @@ function showHelp() {
   const m = modal(`<h2>How to play</h2>
     <ol class="steps">
       <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity (Common, Uncommon, Rare, Super Rare, Legendary): all Common at rank 1, better items later. Now and then an item is half price, and sometimes a Guild Charter (+1 shop rank) or Coupon (cheaper items today) shows up.</li>
-      <li><b>Place it.</b> Click it to pick it up, then click a spot on the 3 × 10 grid (or drag it). Dropping it on another item swaps them. R or the Rotate button turns it; Esc puts it back.</li>
+      <li><b>Place it.</b> Click it to pick it up, then click a spot on the 3 × 5 grid (or drag it). Dropping it on another item swaps them. R or the Rotate button turns it; Esc puts it back.</li>
       <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
       <li><b>Upgrade by merging.</b> Drop an item on an identical one of the same rarity, on the board or bench, to make one item a rarity tier higher: Common → Uncommon → Rare → Super Rare → Legendary. Legendaries are already at the top and can't be upgraded. Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
@@ -488,7 +489,7 @@ function historyPanel() {
 function rulesHtml() {
   return `<h3>How a fight works</h3>
   <ul>
-    <li>A bar sweeps your 10 columns, ${COL_TIME}s per column. When it reaches an item's left edge, that item activates.</li>
+    <li>A bar sweeps your ${COLS} columns, ${COL_TIME}s per column. When it reaches an item's left edge, that item activates.</li>
     <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does ${Math.round(BURN_VS_SHIELD * 100)}% damage to Shield.</li>
     <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
     <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
@@ -631,6 +632,8 @@ function onHeldDown(ev) {
   ev.preventDefault(); ev.stopPropagation();
   window.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, { capture: true, once: true });
   if (ev.button === 2) return cancelHeld();
+  // Clicking Find opponent while holding something: put it away, then go fight.
+  if (ev.target.closest?.('.btn.fight')) { cancelHeld(); return advancePhase(); }
   lastPtr = [ev.clientX, ev.clientY];
   updateDrop(ev.clientX, ev.clientY); finishDrop();
 }

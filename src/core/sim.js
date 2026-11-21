@@ -4,7 +4,7 @@ import { ITEMS } from '../data/items.js';
 import { artifactEffects } from '../data/artifacts.js';
 import { COLS, def, statsOf, tagsOf, adjacent, inScope, uid } from './rules.js';
 
-export const COL_TIME = 0.5;   // seconds for a bar to cross one column at speed ×1
+export const COL_TIME = 1;     // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 5s)
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
 export const OVERTIME = 30;    // storm starts after this many seconds
 export const STORM_BASE = 2;     // storm damage of the first hit
