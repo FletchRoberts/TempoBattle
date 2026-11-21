@@ -6,7 +6,8 @@ import { COLS, def, statsOf, tagsOf, adjacent, uid } from './rules.js';
 export const COL_TIME = 0.5;   // seconds for a bar to cross one column at speed ×1
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
 export const OVERTIME = 30;    // storm starts after this many seconds
-export const STORM_RAMP = 1;   // storm damage per tick grows by this much every tick (ticks every BURN_TICK)
+export const STORM_BASE = 2;     // storm damage of the first hit
+export const STORM_GROWTH = 1.25; // each storm hit is this much bigger than the last (ticks every BURN_TICK)
 export const TIME_LIMIT = 120; // hard stop, counts as a draw
 export const MAX_BARS = 3;
 export const SIM_DT = 0.05;    // fixed simulation step (divides every tick interval evenly)
@@ -31,7 +32,7 @@ export class Battle {
   constructor(a, b, fx) {
     this.f = [a, b]; this.t = 0; this.fx = fx || (() => {});
     this.burnAcc = 0; this.secAcc = 0; this.done = false; this.result = null;
-    this.ticks = 0; this.storm = 0; // storm = current damage per tick (0 until it starts)
+    this.ticks = 0; this.stormHits = 0; this.storm = 0; // storm = damage of the latest hit (0 until it starts)
   }
   step(dt = SIM_DT) {
     if (this.done) return;
@@ -127,10 +128,11 @@ export class Battle {
     if (me.poison > 0) { me.hp -= me.poison; this.fx('float', i, `−${me.poison}`, 'poison'); }
     if (me.regen > 0) { me.hp = Math.min(me.maxHp, me.hp + me.regen); this.fx('float', i, `+${me.regen}`, 'regen'); }
   }
-  // Storm: same tick rate as Burn, ignores Shield, hits both sides, grows every tick.
+  // Storm: same tick rate as Burn, hits both sides like a weapon (Shield absorbs it first),
+  // and grows exponentially so stacked Shield can't stall forever.
   stormTick() {
-    this.storm += STORM_RAMP;
-    for (let i = 0; i < 2; i++) { this.f[i].hp -= this.storm; this.fx('float', i, `−${this.storm}`, 'storm'); }
+    this.storm = Math.round(STORM_BASE * STORM_GROWTH ** this.stormHits++);
+    for (let i = 0; i < 2; i++) this.hit(i, this.storm, 'storm');
   }
   checkEnd() {
     const [a, b] = this.f;

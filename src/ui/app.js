@@ -6,7 +6,7 @@ import {
   def, priceOf, sellValue, upgradeCost, rerollCost, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot,
 } from '../core/rules.js';
-import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_RAMP, SIM_DT } from '../core/sim.js';
+import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
 
@@ -232,7 +232,7 @@ function rulesHtml() {
     <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. Shield blocks it.</li>
     <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
     <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
-    <li>After ${OVERTIME}s a <b class="k-storm">storm</b> hits both sides every ${BURN_TICK}s, ignoring Shield. Its damage goes up by ${STORM_RAMP} every hit.</li>
+    <li>After ${OVERTIME}s a <b class="k-storm">storm</b> hits both sides every ${BURN_TICK}s like a weapon, so Shield blocks it. It starts at ${STORM_BASE} and each hit is ${Math.round((STORM_GROWTH - 1) * 100)}% bigger.</li>
   </ul>`;
 }
 
