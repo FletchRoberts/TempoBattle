@@ -45,7 +45,10 @@ game skips straight to the fight for now.
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
 | HP curve | Base max HP grows 12% a day: 40, 45, 50, 56 … 111 on Day 10, 156 on Day 13 (`HP_BASE`, `HP_GROWTH`). |
 | Artifacts | Run-wide passives in `src/data/artifacts.js`. Choose 1 of 3 on Days 3, 6, 9 … (and from a Treasure Map); picking one again levels it up to IV. They're saved with your board so opponents carry theirs. |
-| Gold items | `gold: { when, v, grow? }` pays out after fights while on your board (Coin Purse, Merchant's Ledger, Piggy Bank, Golden Idol). `map` grants an artifact choice after N fights. |
+| Gold items | `gold: { when, v, grow? }` pays out after fights while on your board, alone (Coin Purse, Piggy Bank) or alongside a fight effect (Tax Collector, Lucky Clover, Trade Caravan). `map` grants an artifact choice after N fights. |
+| Gold on trigger | A `gold` effect earns gold each time the item fires, capped per fight by `goldCap` (Pickpocket Glove, Midas Hammer, Slot Machine). Paid out after the fight. |
+| Income artifacts | Tithe (flat), Compound Interest (10% of your gold, capped), Bounty Hunter (per win), Golden Touch (+N per gold-paying item). |
+| Rows / columns | `aura.scope: 'row' \| 'column'` limits an aura to items sharing a row or column; `aura.multicast` adds activations (War Drum, Oil Lamp, Watchtower, Conductor's Baton). Specials `buffRow` / `buffCol` buff on trigger (Plague Rat, Field Forge). |
 | Max HP | `maxhp` stat: raises max HP and current HP (Heart Locket, Troll Blood, Giant's Belt). |
 | Triggers | `on: { event, scope, effects }`: an item reacts when your other items activate, apply Burn/Poison, gain Shield, Heal or deal damage. Triggered effects don't chain. |
 | Auras | `aura: { tag, stat, v, pct?, cond? }`: passive bonus to your other items of a tag, optionally only under a condition (e.g. enemy below half HP). |

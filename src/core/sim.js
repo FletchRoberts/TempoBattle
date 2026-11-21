@@ -2,7 +2,7 @@
 // with a fixed timestep, so a matchup always has the same result everywhere.
 import { ITEMS } from '../data/items.js';
 import { artifactEffects } from '../data/artifacts.js';
-import { COLS, def, statsOf, tagsOf, adjacent, uid } from './rules.js';
+import { COLS, def, statsOf, tagsOf, adjacent, inScope, uid } from './rules.js';
 
 export const COL_TIME = 0.5;   // seconds for a bar to cross one column at speed ×1
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
@@ -23,7 +23,13 @@ export class Fighter {
     hp += this.art.maxHp || 0;
     this.name = name; this.maxHp = hp; this.hp = hp;
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
-    this.items = items.map(i => ({ ...i, bonus: {}, uses: 0 }));
+    this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0 }));
+    this.goldEarned = 0; // gold won during this fight (paid out afterwards)
+    // Multicast auras (e.g. Conductor's Baton) are positional, so work them out once.
+    for (const o of this.items) {
+      const a = ITEMS[o.id].aura;
+      if (a?.multicast) for (const t of this.items) if (t !== o && inScope(a.scope, o, t)) t.extraMc += a.multicast[o.level - 1];
+    }
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
     this.speedPerm = 1 + (this.art.speed || 0); this.hastes = []; this.slows = [];
   }
@@ -73,7 +79,7 @@ export class Battle {
         const hits = me.items.filter(o => o.x === bar.pos).sort((a, b) => a.y - b.y);
         for (const inst of hits) {
           // Multicast: fire the item several times per hit (stops if it rewound this bar).
-          for (let k = 0; k < (inst.multicast || 1); k++) {
+          for (let k = 0; k < (inst.multicast || 1) + inst.extraMc; k++) {
             if (k > 0 && bar.jump) break;
             this.activate(i, inst, bar);
           }
@@ -95,9 +101,15 @@ export class Battle {
     // Auras from your other items: boost stats this item already has, by tag and condition.
     for (const o of me.items) {
       const a = ITEMS[o.id].aura;
-      if (!a || o === inst || !st[a.stat] || !tagsOf(inst).has(a.tag) || !this.condOk(i, a.cond)) continue;
+      if (!a || !a.stat || o === inst || !st[a.stat] || (a.tag && !tagsOf(inst).has(a.tag))
+        || !inScope(a.scope, o, inst) || !this.condOk(i, a.cond)) continue;
       const av = a.v[o.level - 1];
       st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + av;
+    }
+    if (st.gold) { // gold on trigger, capped per item per fight
+      const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
+      if (give) { inst.goldEarned += give; me.goldEarned += give; this.fx('float', i, `+${give}g`, 'gold'); }
+      delete st.gold;
     }
     const events = this.applyStats(i, st, mult);
     if (sp) this.applySpecial(i, inst, sp, L, bar);
@@ -180,6 +192,13 @@ export class Battle {
       case 'buffAll':
         for (const o of me.items) if (tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o); }
         break;
+      case 'buffRow': case 'buffCol': {
+        const scope = sp.kind === 'buffRow' ? 'row' : 'column';
+        for (const o of me.items) if (o !== inst && inScope(scope, inst, o) && statsOf(o)[sp.stat]) {
+          o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o);
+        }
+        break;
+      }
       case 'grow': inst.bonus[sp.stat] = (inst.bonus[sp.stat] || 0) + sv; this.fx('buff', i, inst); break;
       case 'haste': this.timed(me.hastes, inst, sv, sp.dur ?? 3); this.fx('float', i, 'haste', 'time'); break;
       case 'slow': this.timed(foe.slows, inst, sv, sp.dur ?? 3); this.fx('float', 1 - i, 'slowed', 'slow'); break;

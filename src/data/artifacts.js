@@ -27,6 +27,12 @@ export const ARTIFACTS = {
                text: V => `Battle start: your bar moves 50% faster for ${V}s` },
   tithe:     { name: 'Tithe', icon: '🪙', effect: 'gold', v: [2, 3, 4, 6],
                text: V => `Gain ${V} gold after every fight` },
+  interest:  { name: 'Compound Interest', icon: '🏦', effect: 'interest', v: [3, 4, 6, 8],
+               text: V => `After every fight, gain 10% of your gold as interest (up to ${V})` },
+  bounty:    { name: 'Bounty Hunter', icon: '🎯', effect: 'bounty', v: [3, 4, 6, 9],
+               text: V => `Gain ${V} extra gold after every win` },
+  goldtouch: { name: 'Golden Touch', icon: '✋', effect: 'goldTouch', v: [1, 1, 2, 3],
+               text: V => `Each of your gold-paying items pays ${V} more after fights` },
   haggler:   { name: 'Haggler', icon: '🤝', effect: 'freeRerolls', v: [1, 2, 3, 4],
                text: V => `Your first ${V} shop reroll(s) each day are free` },
 };

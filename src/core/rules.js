@@ -137,6 +137,12 @@ export function adjacent(a, b) {
   return (yOverlap && (a.x + a.w === b.x || b.x + b.w === a.x)) ||
          (xOverlap && (a.y + a.h === b.y || b.y + b.h === a.y));
 }
+// Share at least one row / one column (items can span several).
+export const sameRow = (a, b) => a.y < b.y + b.h && b.y < a.y + a.h;
+export const sameCol = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w;
+export function inScope(scope, a, b) {
+  return scope === 'row' ? sameRow(a, b) : scope === 'column' ? sameCol(a, b) : true;
+}
 export function canPlace(board, x, y, w, h, ignoreUid) {
   if (x < 0 || y < 0 || x + w > COLS || y + h > ROWS) return false;
   return !board.some(o => o.uid !== ignoreUid && x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h);

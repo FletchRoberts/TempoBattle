@@ -15,11 +15,12 @@ export const TAG_NAME = {
 
 export const STAT_NAME = {
   damage: 'Damage', burn: 'Burn', poison: 'Poison', heal: 'Heal',
-  shield: 'Shield', regen: 'Regen', cleanse: 'Cleanse', maxhp: 'Max HP',
+  shield: 'Shield', regen: 'Regen', cleanse: 'Cleanse', maxhp: 'Max HP', gold: 'Gold',
 };
 
 // Text for each stat when an item activates. V is the formatted value (with level progression).
 export const STAT_TEXT = {
+  gold:    V => `Gain ${V} gold`,
   maxhp:   V => `Gain ${V} max HP`,
   shield:  V => `Gain ${V} Shield`,
   heal:    V => `Heal ${V}`,
@@ -29,7 +30,7 @@ export const STAT_TEXT = {
   burn:    V => `Apply ${V} Burn`,
   poison:  V => `Apply ${V} Poison`,
 };
-export const STAT_ORDER = ['maxhp', 'shield', 'heal', 'regen', 'cleanse', 'damage', 'burn', 'poison'];
+export const STAT_ORDER = ['maxhp', 'shield', 'heal', 'regen', 'cleanse', 'damage', 'burn', 'poison', 'gold'];
 
 // Triggers (`on`): an item reacts to your other items. scope 'adjacent' = only items touching it.
 // Triggered effects don't set off further triggers.
@@ -38,7 +39,10 @@ export const ON_EVENT = {
   burn: () => 'When you apply Burn', poison: () => 'When you apply Poison',
   shield: () => 'When you gain Shield', heal: () => 'When you Heal', damage: () => 'When you deal weapon damage',
 };
-// Auras (`aura`): passive bonus to your other items with a tag, optionally only under a condition.
+// Auras (`aura`): passive bonus to your other items with a tag (or any item, if no tag), optionally
+// only under a condition, and optionally only for items sharing its row or column (`scope`).
+// `multicast` instead of `stat` adds extra activations.
+export const AURA_SCOPE = { row: 'in the same row', column: 'in the same column' };
 export const AURA_COND = {
   enemyBelowHalf: 'while the enemy is below half HP',
   selfBelowHalf: 'while you are below half HP',
@@ -58,6 +62,8 @@ export const SPECIALS = {
   rewind:    { text: (s, V) => `Send this bar back to the start. ${V} use(s) per fight` },
   echo:      { text: (s, V) => `Launch an extra bar from the start. ${V} use(s) per fight` },
   grow:      { text: (s, V) => `This item gains +${V} ${STAT_NAME[s.stat]} each time it activates` },
+  buffRow:   { text: (s, V) => `Your items in the same row that have ${STAT_NAME[s.stat]} gain +${V} ${STAT_NAME[s.stat]} for this fight` },
+  buffCol:   { text: (s, V) => `Your items in the same column that have ${STAT_NAME[s.stat]} gain +${V} ${STAT_NAME[s.stat]} for this fight` },
   bash:      { fmt: v => Math.round(v * 100) + '%', text: (s, V) => `Then deal damage equal to ${V} of your Shield` },
   ignite:    { fmt: v => '×' + v, text: (s, V) => `Multiply the enemy's Burn by ${V}` },
 };
@@ -190,6 +196,35 @@ export const ITEMS = {
   // map: after this many fights on your board it's used up and you choose an artifact.
   map:      { name: 'Treasure Map',  icon: '🗺️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
               map: { v: [3, 2, 2, 1] } },
+
+  // Hybrids: fight, and pay gold just for being on your board
+  taxman:   { name: 'Tax Collector', icon: '💼', rarity: 'rare', w: 1, h: 1, tags: ['weapon', 'tool'],
+              effects: { damage: [4, 6, 8, 11] }, gold: { when: 'fight', v: [1, 1, 2, 3] } },
+  clover:   { name: 'Lucky Clover',  icon: '🍀', rarity: 'common', w: 1, h: 1, tags: ['regen'],
+              effects: { regen: [1, 1, 1, 2] }, gold: { when: 'fight', v: [1, 1, 2, 2] } },
+  caravan:  { name: 'Trade Caravan', icon: '🐫', rarity: 'epic', w: 2, h: 1, tags: ['heal', 'tool'],
+              effects: { heal: [6, 8, 11, 15] }, gold: { when: 'fight', v: [2, 3, 4, 5] } },
+  // Gold on trigger: `gold` effect, capped per fight by `goldCap`
+  glove:    { name: 'Pickpocket Glove', icon: '🧤', rarity: 'common', w: 1, h: 1, tags: ['weapon'],
+              effects: { damage: [3, 4, 6, 8], gold: [1, 1, 1, 1] }, goldCap: [2, 3, 4, 5] },
+  midas:    { name: 'Midas Hammer',  icon: '🔨', rarity: 'rare', w: 2, h: 1, tags: ['weapon'],
+              effects: { damage: [8, 11, 16, 22], gold: [1, 1, 2, 2] }, goldCap: [4, 6, 8, 10] },
+  slots:    { name: 'Slot Machine',  icon: '🎰', rarity: 'epic', w: 1, h: 1, tags: ['tool'], multicast: 2,
+              effects: { gold: [1, 1, 2, 2] }, goldCap: [6, 9, 12, 16] },
+
+  // ---------- Row / column ----------
+  drum:     { name: 'War Drum',      icon: '🥁', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+              aura: { scope: 'column', stat: 'damage', v: [2, 3, 4, 6] } },
+  lamp:     { name: 'Oil Lamp',      icon: '🪔', rarity: 'rare', w: 1, h: 1, tags: ['fire', 'tool'],
+              aura: { scope: 'row', stat: 'burn', v: [1, 1, 2, 3] } },
+  watchtower:{ name: 'Watchtower',   icon: '🗼', rarity: 'epic', w: 1, h: 1, tags: ['shield'],
+              effects: { shield: [3, 4, 6, 8] }, aura: { scope: 'row', stat: 'shield', v: [3, 4, 6, 8] } },
+  rat:      { name: 'Plague Rat',    icon: '🐀', rarity: 'rare', w: 1, h: 1, tags: ['poison'],
+              effects: { poison: [1, 1, 2, 2] }, special: { kind: 'buffRow', stat: 'poison', v: [1, 1, 1, 2] } },
+  forge:    { name: 'Field Forge',   icon: '⚒️', rarity: 'epic', w: 1, h: 1, tags: ['tool', 'fire'],
+              special: { kind: 'buffCol', stat: 'damage', v: [2, 3, 4, 6] } },
+  baton:    { name: "Conductor's Baton", icon: '🪄', rarity: 'legendary', w: 1, h: 1, tags: ['time', 'tool'],
+              aura: { scope: 'column', multicast: [1, 1, 1, 2] } },
 
   // ---------- Max HP ----------
   locket:   { name: 'Heart Locket',  icon: '💖', rarity: 'common', w: 1, h: 1, tags: ['heal'],

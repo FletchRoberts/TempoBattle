@@ -1,5 +1,5 @@
 // Browser UI: shop, drag and drop, PvP battle playback. All rules come from src/core.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
@@ -77,8 +77,19 @@ function fightPayout(result, commit) {
       if (inst.charge >= d.map.v[L]) { S.board = S.board.filter(o => o !== inst); S.artifactPicks++; toast('Your Treasure Map led to an artifact!'); }
     }
   }
-  const tithe = artifactEffects(S.artifacts).gold || 0;
-  if (tithe) { total += tithe; lines.push([ARTIFACTS.tithe.name, tithe]); }
+  const A = artifactEffects(S.artifacts);
+  const battleGold = S.battle?.f[0].goldEarned || 0;
+  if (battleGold) { total += battleGold; lines.push(['Earned during the fight', battleGold]); }
+  if (A.goldTouch) {
+    const n = S.board.filter(o => def(o).gold && !(def(o).gold.when === 'win' && !won)).length;
+    if (n) { total += n * A.goldTouch; lines.push([ARTIFACTS.goldtouch.name, n * A.goldTouch]); }
+  }
+  if (A.gold) { total += A.gold; lines.push([ARTIFACTS.tithe.name, A.gold]); }
+  if (A.bounty && won) { total += A.bounty; lines.push([ARTIFACTS.bounty.name, A.bounty]); }
+  if (A.interest) {
+    const i = Math.min(A.interest, Math.floor(S.gold * 0.1));
+    if (i) { total += i; lines.push([ARTIFACTS.interest.name, i]); }
+  }
   return { total, lines };
 }
 function advanceDay(result) {
@@ -204,9 +215,13 @@ export function describe(inst) {
     lines.push(`<li class="s-trigger"><b>${ON_EVENT[d.on.event](d.on)}:</b> ${parts.join(', ')}</li>`);
   }
   if (d.aura) {
-    const a = d.aura, V = prog(a.v, L, a.pct ? x => Math.round(x * 100) + '%' : x => x);
-    lines.push(`<li class="s-aura"><b>Passive:</b> your other ${TAG_NAME[a.tag]} items get +${V} ${STAT_NAME[a.stat]}${a.cond ? ' ' + AURA_COND[a.cond] : ''}</li>`);
+    const a = d.aura;
+    const who = `your other ${a.tag ? TAG_NAME[a.tag] + ' ' : ''}items${a.scope ? ' ' + AURA_SCOPE[a.scope] : ''}`;
+    const what = a.multicast ? `+${prog(a.multicast, L)} multicast`
+      : `+${prog(a.v, L, a.pct ? x => Math.round(x * 100) + '%' : x => x)} ${STAT_NAME[a.stat]}`;
+    lines.push(`<li class="s-aura"><b>Passive:</b> ${who} get ${what}${a.cond ? ' ' + AURA_COND[a.cond] : ''}${a.stat && !a.pct ? ` (if they have ${STAT_NAME[a.stat]})` : ''}</li>`);
   }
+  if (d.goldCap) lines.push(`<li class="s-gold">Earns up to ${prog(d.goldCap, L)} gold per fight</li>`);
   for (const id of inst.mods || []) {
     const m = MODIFIERS[id];
     lines.push(`<li class="s-${m.stat || 'multicast'} modded">${m.icon} ${m.name}: ${m.stat ? `+<span class="cur">${m.v}</span> ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</li>`);
@@ -330,7 +345,8 @@ function showHelp() {
       <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
       <li><b>Artifacts.</b> Every ${ARTIFACT_DAYS} days you choose 1 of 3 artifacts: run-wide bonuses like a faster bar or more damage. Picking one again levels it up. A Treasure Map also earns you a pick.</li>
-      <li><b>Gold items.</b> Coin Purse, Piggy Bank and others pay out gold after fights while they're on your board.</li>
+      <li><b>Gold.</b> Some items pay out after fights just for being on your board, others earn gold each time they fire (up to a cap per fight). Artifacts like Tithe and Compound Interest add more.</li>
+      <li><b>Rows and columns.</b> Some items boost the other items in their row or column, like War Drum (+Damage to its column) or Conductor's Baton (+1 multicast to its column).</li>
       <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before your ${START_LIVES} lives run out. A loss costs ${lifeLoss(1)} life on Days 1–3, ${lifeLoss(4)} on Days 4–7 and ${lifeLoss(8)} after that. The first time you run out, you get a Last Stand: pick a rare boon and fight on with 1 life.</li>
     </ol>
     <h3>Effects</h3>
