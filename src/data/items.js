@@ -204,13 +204,13 @@ export const ITEMS = {
               effects: { regen: [1, 1, 1, 2] }, gold: { when: 'fight', v: [1, 1, 2, 2] } },
   caravan:  { name: 'Trade Caravan', icon: '🐫', rarity: 'epic', w: 2, h: 1, tags: ['heal', 'tool'],
               effects: { heal: [6, 8, 11, 15] }, gold: { when: 'fight', v: [2, 3, 4, 5] } },
-  // Gold on trigger: `gold` effect, capped per fight by `goldCap`
+  // Gold on trigger: `gold` effect, paid out after the fight (optional `goldCap` limits it per fight)
   glove:    { name: 'Pickpocket Glove', icon: '🧤', rarity: 'common', w: 1, h: 1, tags: ['weapon'],
-              effects: { damage: [3, 4, 6, 8], gold: [1, 1, 1, 1] }, goldCap: [2, 3, 4, 5] },
+              effects: { damage: [3, 4, 6, 8], gold: [1, 1, 1, 1] } },
   midas:    { name: 'Midas Hammer',  icon: '🔨', rarity: 'rare', w: 2, h: 1, tags: ['weapon'],
-              effects: { damage: [8, 11, 16, 22], gold: [1, 1, 2, 2] }, goldCap: [4, 6, 8, 10] },
+              effects: { damage: [8, 11, 16, 22], gold: [1, 1, 2, 2] } },
   slots:    { name: 'Slot Machine',  icon: '🎰', rarity: 'epic', w: 1, h: 1, tags: ['tool'], multicast: 2,
-              effects: { gold: [1, 1, 2, 2] }, goldCap: [6, 9, 12, 16] },
+              effects: { gold: [1, 1, 2, 2] } },
 
   // ---------- Row / column ----------
   drum:     { name: 'War Drum',      icon: '🥁', rarity: 'rare', w: 1, h: 1, tags: ['tool'],

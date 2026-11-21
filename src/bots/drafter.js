@@ -1,15 +1,46 @@
 // A bot that plays a whole run through the real shop rules and records its board each day.
 // Those daily boards seed the PvP opponent pool until real players fill it.
 import { MODIFIERS } from '../data/items.js';
+import { ARTIFACTS, ARTIFACT_DAYS, artifactEffects } from '../data/artifacts.js';
 import { makeRng } from '../core/rng.js';
 import {
-  START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, freeSpots, rollShop, rerollCost,
-  canMerge, mergeInto, sellValue, income, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
+  START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rerollCost,
+  canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
+  afterFightGold,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 
 const POWER = { common: 1, rare: 1.7, epic: 2.4, legendary: 3.2 };
-const isSupport = inst => ['buffAdj', 'amplify'].includes(def(inst).special?.kind);
+// Items whose value depends on what sits next to / in line with them get placed last.
+const isSupport = inst => {
+  const d = def(inst);
+  return ['buffAdj', 'amplify', 'buffRow', 'buffCol'].includes(d.special?.kind) || !!d.aura?.scope || d.on?.scope === 'adjacent';
+};
+
+// ---------- Economy ----------
+let curDay = 1; // set by draftRun each day; used for how much money matters
+const econWeight = day => Math.max(0, (9 - day) / 9); // gold matters early, barely at the end
+// Rough gold an item makes per fight (trigger gold assumes ~3 activations).
+export function goldPerFight(inst) {
+  const d = def(inst), L = inst.level - 1;
+  let g = 0;
+  if (d.gold) g += d.gold.grow ? d.gold.v[L] / 2 : d.gold.v[L] * (d.gold.when === 'win' ? 0.5 : 1);
+  const tg = statsOf(inst).gold; if (tg) g += tg * (inst.multicast || 1) * 3;
+  return g;
+}
+const boardGold = board => board.reduce((a, o) => a + goldPerFight(o), 0);
+const estBattleGold = board => board.reduce((a, o) => a + (statsOf(o).gold || 0) * (o.multicast || 1) * 3, 0);
+
+// Does `src`'s row/column aura or buff reach `tgt` usefully?
+function scopeHelps(src, tgt) {
+  const d = def(src), a = d.aura, sp = d.special;
+  if (a?.scope && inScope(a.scope, src, tgt)) {
+    if (a.multicast) return true;
+    if ((!a.tag || tagsOf(tgt).has(a.tag)) && statsOf(tgt)[a.stat]) return true;
+  }
+  if (sp && (sp.kind === 'buffRow' || sp.kind === 'buffCol') && inScope(sp.kind === 'buffRow' ? 'row' : 'column', src, tgt) && statsOf(tgt)[sp.stat]) return true;
+  return false;
+}
 
 // How much this bot values an item on this board (no randomness).
 export function itemValue(inst, board, arch) {
@@ -24,6 +55,7 @@ export function itemValue(inst, board, arch) {
   }
   if (sp?.kind === 'amplify') v *= others.length >= 3 ? 1 : 0.5;
   if (sp?.kind === 'ignite') v *= others.some(o => statsOf(o).burn) ? 1 : 0.2;
+  v += goldPerFight(inst) * 0.5 * econWeight(curDay);
   return v;
 }
 
@@ -37,7 +69,10 @@ function placementScore(inst, x, y, w, h, placed, arch, rng) {
     if (osp?.kind === 'buffAdj' && tagsOf(inst).has(osp.tag)) s += 3;
     if (sp?.kind === 'amplify') s += itemValue(o, placed, arch);
     if (osp?.kind === 'amplify') s += itemValue(inst, placed, arch);
+    if (def(inst).on?.scope === 'adjacent') s += 1;
+    if (def(o).on?.scope === 'adjacent') s += 1;
   }
+  for (const o of placed) { if (scopeHelps(c, o)) s += 1.5; if (scopeHelps(o, c)) s += 1.5; }
   if (['haste', 'overclock', 'echo'].includes(sp?.kind)) s -= x * 0.5;
   if (sp?.kind === 'rewind') s += x * 0.5;
   return s;
@@ -89,6 +124,34 @@ function acquire(st, inst, value, arch) {
 }
 
 const copyItem = o => ({ ...o, mods: [...(o.mods || [])] });
+const freeRerolls = st => artifactEffects(st.artifacts).freeRerolls || 0;
+const botRerollCost = (st, n) => (n < freeRerolls(st) ? 0 : rerollCost(n - freeRerolls(st)));
+
+// ---------- Artifacts ----------
+const ART_TAG = { dmgPct: 'weapon', burnAdd: 'fire', poisonAdd: 'poison', healPct: 'heal', shieldPct: 'shield',
+  startShield: 'shield', speed: 'time', startHaste: 'time' };
+const ECON_ARTS = ['gold', 'interest', 'bounty', 'goldTouch', 'freeRerolls'];
+function artifactAppeal(id, st, arch, day) {
+  const e = ARTIFACTS[id].effect;
+  const base = ECON_ARTS.includes(e) ? 0.3 + 1.2 * econWeight(day) : ART_TAG[e] ? (arch.tags[ART_TAG[e]] ?? 0.3) : 0.8;
+  return base + (st.artifacts[id] ? 0.3 : 0);
+}
+// Offered 3, take 1. Smart bots also simulate the fight-relevant ones; nobody sees the future.
+function chooseArtifact(st, day, arch, skill, rng, bench) {
+  const open = Object.keys(ARTIFACTS).filter(id => (st.artifacts[id] || 0) < 4);
+  const choices = rng.shuffle(open).slice(0, 3);
+  let best = null;
+  for (const id of choices) {
+    let sc = artifactAppeal(id, st, arch, day) + rng.next() * skill.noise;
+    if (bench?.length && skill.lookahead) {
+      const arts = { ...st.artifacts, [id]: (st.artifacts[id] || 0) + 1 }, hp = maxHp(day);
+      const wins = bench.reduce((a, opp) => a + ({ win: 1, draw: 0.5, loss: 0 })[simulate(st.board, opp.items, hp, arts, opp.artifacts)], 0);
+      sc = sc * 0.3 + (wins / bench.length) * 3;
+    }
+    if (!best || sc > best.sc) best = { id, sc };
+  }
+  if (best) st.artifacts[best.id] = (st.artifacts[best.id] || 0) + 1;
+}
 const byValue = (board, arch) => (a, b) => itemValue(b, board, arch) - itemValue(a, board, arch);
 
 // Items a modifier could go on, best first (prefers items that already use that stat).
@@ -110,7 +173,8 @@ function useWildEssence(board, arch, rng) {
 function shopDaySimulated(st, day, arch, skill, rng, bench) {
   const hp = maxHp(day);
   const pts = { win: 1, draw: 0.5, loss: 0 };
-  const evalBoard = board => bench.reduce((s, opp) => s + pts[simulate(board, opp, hp)], 0) / bench.length;
+  const evalBoard = board => bench.reduce((s, opp) => s + pts[simulate(board, opp.items, hp, st.artifacts, opp.artifacts)], 0) / bench.length
+    + econWeight(day) * 0.03 * boardGold(board);
   const clone = () => ({ gold: st.gold, board: st.board.map(copyItem) });
   let cur = evalBoard(st.board);
   for (let rerolls = 0; ; rerolls++) {
@@ -141,8 +205,8 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
     if (wild && st.gold >= wild.price + 3 && rng.chance(0.6) && useWildEssence(st.board, arch, rng)) {
       st.gold -= wild.price; wild.sold = true; cur = evalBoard(st.board);
     }
-    if (rerolls >= skill.rerolls || st.gold < rerollCost(rerolls) + 3) break;
-    st.gold -= rerollCost(rerolls);
+    if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
+    st.gold -= botRerollCost(st, rerolls);
   }
 }
 
@@ -165,24 +229,31 @@ function shopDay(st, day, arch, skill, rng) {
       }
       if (acquire(st, o.inst, s, arch)) st.gold -= o.price;
     }
-    if (rerolls >= skill.rerolls || st.gold < rerollCost(rerolls) + 3) break;
-    st.gold -= rerollCost(rerolls);
+    if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
+    st.gold -= botRerollCost(st, rerolls);
   }
 }
 
-// Play a full run. Returns one board snapshot per day (index 0 = day 1).
+// Play a full run. Returns one { items, artifacts } snapshot per day (index 0 = day 1).
 // `bench(day)` (optional) returns opponent boards for simulated shopping; used when skill.lookahead > 0.
 export function draftRun({ arch, skill, seed, days = MAX_DAYS, bench = null }) {
   const rng = makeRng(seed);
-  const st = { gold: START_GOLD, board: starterBoard() };
+  const st = { gold: START_GOLD, board: starterBoard(), artifacts: {} };
   const snaps = [];
   for (let day = 1; day <= days; day++) {
-    if (day > 1) st.gold += income(day - 1, rng.chance(0.5));
+    curDay = day;
+    let picks = day % ARTIFACT_DAYS === 0 ? 1 : 0;
+    if (day > 1) { // bots don't really fight while drafting: assume a coin-flip result
+      const p = afterFightGold({ board: st.board, artifacts: st.artifacts, day: day - 1, won: rng.chance(0.5),
+        gold: st.gold, battleGold: estBattleGold(st.board) }, true);
+      st.gold += p.total; st.board = p.board; picks += p.artifactPicks;
+    }
     const b = skill.lookahead && bench ? bench(day) : null;
+    for (; picks > 0; picks--) chooseArtifact(st, day, arch, skill, rng, b);
     if (b && b.length) shopDaySimulated(st, day, arch, skill, rng, b);
     else shopDay(st, day, arch, skill, rng);
     arrange(st.board, arch, rng);
-    snaps.push(snapshot(st.board));
+    snaps.push({ items: snapshot(st.board), artifacts: { ...st.artifacts } });
   }
   return snaps;
 }

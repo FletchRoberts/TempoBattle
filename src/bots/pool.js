@@ -25,13 +25,15 @@ export function buildPool({ seedsPerCombo = 2, baseSeed = 1, days = MAX_DAYS, sm
     const skill = SKILLS[b.skill];
     if (!smart || !skill.lookahead) continue;
     const bench = day => (benchCache[`${day}:${skill.lookahead}`] ||=
-      makeRng(day * 7919 + skill.lookahead).shuffle(bots.map(o => o.snaps[day - 1])).slice(0, skill.lookahead).map(fromSnapshot));
+      makeRng(day * 7919 + skill.lookahead).shuffle(bots.map(o => o.snaps[day - 1])).slice(0, skill.lookahead)
+      .map(sn => ({ items: fromSnapshot(sn.items), artifacts: sn.artifacts })));
     b.snaps = draftRun({ arch: ARCHETYPES[b.arch], skill, seed: b.seed, days, bench });
     onProgress(0, days);
   }
   const pool = { version: 1, generated: new Date().toISOString(), band: MATCH_BAND, days: {} };
   for (let day = 1; day <= days; day++) {
-    const teams = bots.map(b => ({ id: `${b.id}-d${day}`, name: b.name, arch: b.arch, skill: b.skill, source: 'bot', items: b.snaps[day - 1] }));
+    const teams = bots.map(b => ({ id: `${b.id}-d${day}`, name: b.name, arch: b.arch, skill: b.skill, source: 'bot',
+      items: b.snaps[day - 1].items, artifacts: b.snaps[day - 1].artifacts }));
     rateField(teams, day);
     pool.days[day] = teams;
     onProgress(day, days);

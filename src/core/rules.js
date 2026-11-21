@@ -1,5 +1,6 @@
 // Run rules, economy and board helpers. No DOM here: shared by the game, the bots and the Node tools.
 import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE } from '../data/items.js';
+import { ARTIFACTS, artifactEffects } from '../data/artifacts.js';
 
 export const COLS = 10, ROWS = 3;
 export const BENCH_MAX = 8, START_LIVES = 10, WINS_TO_CLEAR = 10, START_GOLD = 12;
@@ -79,6 +80,36 @@ export function starterBoard() {
   const d = newInst('dagger'); d.x = 0; d.y = 1;
   const b = newInst('buckler'); b.x = 2; b.y = 0;
   return [d, b];
+}
+
+// ---------- Gold after a fight (shared by the game and the bots) ----------
+// Daily income + gold items on the board + gold earned during the fight + artifacts.
+// With commit, also advances item counters (Piggy Bank, Treasure Map) and removes finished maps.
+export function afterFightGold({ board, artifacts = {}, day, won, gold = 0, battleGold = 0 }, commit = false) {
+  const lines = [['Daily income', income(day, won)]];
+  let artifactPicks = 0, keep = board;
+  for (const inst of board) {
+    const d = def(inst), L = inst.level - 1;
+    if (d.gold && !(d.gold.when === 'win' && !won)) {
+      const amt = d.gold.grow ? Math.min((inst.charge || 0) + 1, d.gold.v[L]) : d.gold.v[L];
+      if (commit && d.gold.grow) inst.charge = amt;
+      lines.push([d.name, amt]);
+    }
+    if (d.map && commit) {
+      inst.charge = (inst.charge || 0) + 1;
+      if (inst.charge >= d.map.v[L]) { keep = keep.filter(o => o !== inst); artifactPicks++; }
+    }
+  }
+  if (battleGold) lines.push(['Earned during the fight', battleGold]);
+  const A = artifactEffects(artifacts);
+  if (A.goldTouch) {
+    const n = board.filter(o => def(o).gold && !(def(o).gold.when === 'win' && !won)).length;
+    if (n) lines.push([ARTIFACTS.goldtouch.name, n * A.goldTouch]);
+  }
+  if (A.gold) lines.push([ARTIFACTS.tithe.name, A.gold]);
+  if (A.bounty && won) lines.push([ARTIFACTS.bounty.name, A.bounty]);
+  if (A.interest) { const i = Math.min(A.interest, Math.floor(gold * 0.1)); if (i) lines.push([ARTIFACTS.interest.name, i]); }
+  return { total: lines.reduce((a, [, g]) => a + g, 0), lines, board: keep, artifactPicks };
 }
 
 // ---------- Shop ----------

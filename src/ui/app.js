@@ -4,7 +4,7 @@ import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
   def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, modSlots, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
-  tagsOf, canPlace, itemAt, snapshot, fromSnapshot,
+  tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
@@ -59,38 +59,13 @@ function nextDay(result) {
   }
   advanceDay(result);
 }
-// Gold after a fight: daily income + gold items on your board + artifacts. With commit, also
-// advances item counters (Piggy Bank, Treasure Map).
+// Gold after a fight (rules live in afterFightGold). With commit, item counters advance and
+// finished Treasure Maps turn into artifact picks.
 function fightPayout(result, commit) {
-  const won = result === 'win', lines = [];
-  let total = income(S.day, won);
-  lines.push(['Daily income', total]);
-  for (const inst of [...S.board]) {
-    const d = def(inst), L = inst.level - 1;
-    if (d.gold && !(d.gold.when === 'win' && !won)) {
-      const amt = d.gold.grow ? Math.min((inst.charge || 0) + 1, d.gold.v[L]) : d.gold.v[L];
-      if (commit && d.gold.grow) inst.charge = amt;
-      total += amt; lines.push([d.name, amt]);
-    }
-    if (d.map && commit) {
-      inst.charge = (inst.charge || 0) + 1;
-      if (inst.charge >= d.map.v[L]) { S.board = S.board.filter(o => o !== inst); S.artifactPicks++; toast('Your Treasure Map led to an artifact!'); }
-    }
-  }
-  const A = artifactEffects(S.artifacts);
-  const battleGold = S.battle?.f[0].goldEarned || 0;
-  if (battleGold) { total += battleGold; lines.push(['Earned during the fight', battleGold]); }
-  if (A.goldTouch) {
-    const n = S.board.filter(o => def(o).gold && !(def(o).gold.when === 'win' && !won)).length;
-    if (n) { total += n * A.goldTouch; lines.push([ARTIFACTS.goldtouch.name, n * A.goldTouch]); }
-  }
-  if (A.gold) { total += A.gold; lines.push([ARTIFACTS.tithe.name, A.gold]); }
-  if (A.bounty && won) { total += A.bounty; lines.push([ARTIFACTS.bounty.name, A.bounty]); }
-  if (A.interest) {
-    const i = Math.min(A.interest, Math.floor(S.gold * 0.1));
-    if (i) { total += i; lines.push([ARTIFACTS.interest.name, i]); }
-  }
-  return { total, lines };
+  const p = afterFightGold({ board: S.board, artifacts: S.artifacts, day: S.day, won: result === 'win',
+    gold: S.gold, battleGold: S.battle?.f[0].goldEarned || 0 }, commit);
+  if (commit && p.artifactPicks) { S.board = p.board; S.artifactPicks += p.artifactPicks; toast('Your Treasure Map led to an artifact!'); }
+  return p;
 }
 function advanceDay(result) {
   S.gold += fightPayout(result, true).total;
