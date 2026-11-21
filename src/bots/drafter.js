@@ -6,7 +6,7 @@ import { makeRng } from '../core/rng.js';
 import {
   START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rerollCost,
   canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
-  afterFightGold, shopRank, offerPrice, tierOf,
+  afterFightGold, shopRank, offerPrice, tierOf, isActive, chargeCost, CHARGE_DEFAULT,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 import { tel, telShop } from '../balance/telemetry.js';
@@ -15,7 +15,8 @@ const POWER = { common: 1, uncommon: 1.35, rare: 1.75, superrare: 2.4, legendary
 // Items whose value depends on what sits next to / in line with them get placed last.
 const isSupport = inst => {
   const d = def(inst);
-  return ['buffAdj', 'amplify', 'buffRow', 'buffCol'].includes(d.special?.kind) || !!d.aura?.scope || d.on?.scope === 'adjacent';
+  return ['buffAdj', 'amplify', 'buffRow', 'buffCol', 'charge'].includes(d.special?.kind) || d.start?.special?.kind === 'charge'
+    || !!d.aura?.scope || d.on?.scope === 'adjacent';
 };
 
 // ---------- Economy ----------
@@ -40,6 +41,9 @@ function scopeHelps(src, tgt) {
     if ((!a.tag || tagsOf(tgt).has(a.tag)) && statsOf(tgt)[a.stat]) return true;
   }
   if (sp && (sp.kind === 'buffRow' || sp.kind === 'buffCol') && inScope(sp.kind === 'buffRow' ? 'row' : 'column', src, tgt) && statsOf(tgt)[sp.stat]) return true;
+  // charge givers help any item that charges
+  for (const c of [sp, d.start?.special]) if (c?.kind === 'charge' && isActive(def(tgt))
+    && (c.scope === 'adjacent' ? adjacent(src, tgt) : inScope(c.scope, src, tgt))) return true;
   return false;
 }
 
@@ -56,6 +60,8 @@ export function itemValue(inst, board, arch) {
   }
   if (sp?.kind === 'amplify') v *= others.length >= 3 ? 1 : 0.5;
   if (sp?.kind === 'ignite') v *= others.some(o => statsOf(o).burn) ? 1 : 0.2;
+  // faster items fire more often (roughly; speeding-up items count at their average)
+  if (isActive(d)) v *= CHARGE_DEFAULT / Math.max(1, d.accel ? (chargeCost(inst) + (d.minCharge ?? 1)) / 2 : chargeCost(inst));
   v += goldPerFight(inst) * 0.5 * econWeight(curDay);
   return v;
 }

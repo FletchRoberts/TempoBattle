@@ -27,7 +27,10 @@ game skips straight to the fight for now.
 | | |
 |---|---|
 | Grid | 3 rows × 5 columns (15 cells), so weak items have to be swapped out. Items are 1×1 up to 2×3 and can be rotated. |
-| Bar | 1s per column (`COL_TIME`), so a full pass is 5s. Items in the same column fire together, top to bottom. |
+| Bar | 0.25s per column (`COL_TIME`), so a full pass is 1.25s. |
+| Charge | Each time the bar hits an item it gains 1 charge (yellow bar). At its cost it fires and spends it. Default 4 (= once per 5s); fast items 2–3 with smaller numbers, heavy items 5–8 with bigger ones. `charge` can list one cost per tier (fewer as it levels). `accel` = charges saved each time it fires, down to `minCharge`. Items with only triggers, auras, gold, start effects or amplify are passive and don't charge. |
+| Charging others | `special: { kind: 'charge', scope: 'adjacent' \| 'row' \| 'column', v }` (Dynamo, Tesla Coil); as a `start` special it's a head start (Capacitor). Chains stop after 3 deep. Static Charge artifact: all items start with extra charge. |
+| Per-fire bonuses | Flat bonuses (modifiers, infusions, flat auras, buffs, artifact Burn/Poison adds) are scaled by charge cost ÷ 4, so a +5 modifier is worth the same per second on a fast or a slow item. |
 | Burn | Deals its stacks every 0.5s, then loses 1. Against Shield it only does 80% damage (`BURN_VS_SHIELD`), so each Shield point blocks 1.25 Burn. |
 | Poison | Deals its stacks every 1s, ignores Shield, never fades. |
 | Regen | Heals its stacks every 1s. |

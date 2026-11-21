@@ -25,6 +25,8 @@ export const ARTIFACTS = {
                text: V => `You take ${V} less storm damage` },
   quickstart:{ name: 'Quick Start', icon: '🚀', effect: 'startHaste', v: [2, 3, 4, 5],
                text: V => `Battle start: your bar moves 50% faster for ${V}s` },
+  staticcharge: { name: 'Static Charge', icon: '🔌', effect: 'startCharge', v: [1, 1, 2, 3],
+               text: V => `Battle start: your items begin with +${V} charge` },
   tithe:     { name: 'Tithe', icon: '🪙', effect: 'gold', v: [2, 3, 4, 6],
                text: V => `Gain ${V} gold after every fight` },
   interest:  { name: 'Compound Interest', icon: '🏦', effect: 'interest', v: [3, 4, 6, 8],

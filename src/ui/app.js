@@ -3,7 +3,7 @@ import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME,
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
@@ -186,6 +186,11 @@ function describeLines(inst) {
     if (d.start.special) { const SP = SPECIALS[d.start.special.kind]; parts.push(SP.text(d.start.special, prog(d.start.special.v, L, SP.fmt)).replace(/\. Triggering again refreshes it$/, '')); }
     lines.unshift(`<li class="s-start"><b>Battle start:</b> ${parts.join('. ')}</li>`);
   }
+  if (isActive(d)) {
+    const c = d.charge, cost = Array.isArray(c) ? prog(c, L) : `<span class="cur">${c ?? CHARGE_DEFAULT}</span>`;
+    lines.unshift(`<li class="s-charge">⚡ Fires every ${cost} charges (+1 each time the bar passes)` +
+      (d.accel ? `, then needs ${d.accel} fewer each time it fires (down to ${d.minCharge ?? 1})` : '') + '</li>');
+  } else lines.unshift(`<li class="s-charge passive">No charge needed: ${d.on ? 'it reacts to your other items' : d.start && !d.aura ? 'it acts at battle start' : d.gold || d.map ? 'it pays out after fights' : 'always on'}</li>`);
   if (d.gold) {
     const when = d.gold.when === 'win' ? 'After you win a fight' : 'After each fight';
     lines.push(`<li class="s-gold"><b>${when}:</b> ${d.gold.grow
@@ -207,7 +212,7 @@ function describeLines(inst) {
   if (d.goldCap) lines.push(`<li class="s-gold">Earns up to ${prog(d.goldCap, L)} gold per fight</li>`);
   for (const id of inst.mods || []) {
     const m = MODIFIERS[id];
-    lines.push(`<li class="s-${m.stat || 'multicast'} modded">${m.icon} ${m.name}: ${m.stat ? `+<span class="cur">${m.v}</span> ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</li>`);
+    lines.push(`<li class="s-${m.stat || 'multicast'} modded">${m.icon} ${m.name}: ${m.stat ? `+<span class="cur">${scaledBonus(m.v, perFireScale(inst))}</span> ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</li>`);
   }
   if (inst.multicast > 1) {
     const src = [(d.multicast || 1) > 1 && 'built in', isShiny(inst) && 'shiny'].filter(Boolean).join(' + ');
@@ -238,6 +243,7 @@ function itemEl(inst, scale = 'cell') {
   e.innerHTML = `<span class="ico">${d.icon}</span><span class="pips">${pips}</span>` +
     (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') +
     `<span class="badges">${inst.multicast > 1 ? `<i class="mc">×${inst.multicast}</i>` : ''}${inst.mods?.length ? `<i class="modc" title="Modifiers">+${inst.mods.length}</i>` : ''}</span>` +
+    (isActive(d) ? `<span class="chg" title="Charge: fires at ${chargeCost(inst)}"><i></i></span>` : '') +
     `<span class="flash"></span>`;
   e.title = `${d.name} (${RARITY[tierOf(inst)].name})`;
   return e;
@@ -247,7 +253,7 @@ function timeline(items, opts = {}) {
   const wrap = el('div', 'timeline' + (opts.enemy ? ' enemy' : ''));
   const rulerRow = el('div', 'ruler-row', '<span class="tc">sec</span>');
   const ruler = el('div', 'ruler');
-  for (let c = 0; c < COLS; c++) ruler.append(el('span', '', (c * COL_TIME).toFixed(1)));
+  for (let c = 0; c < COLS; c++) ruler.append(el('span', '', (c * COL_TIME).toFixed(2)));
   rulerRow.append(ruler);
   const body = el('div', 'tl-body');
   const labels = el('div', 'tracks');
@@ -321,7 +327,7 @@ function showHelp() {
     <ol class="steps">
       <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity (Common, Uncommon, Rare, Super Rare, Legendary): all Common at rank 1, better items later. Now and then an item is half price, and sometimes a Guild Charter (+1 shop rank) or Coupon (cheaper items today) shows up.</li>
       <li><b>Place it.</b> Click it to pick it up, then click a spot on the 3 × 5 grid (or drag it). Dropping it on another item swaps them. R or the Rotate button turns it; Esc puts it back.</li>
-      <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
+      <li><b>Charge.</b> In a fight a bar sweeps left to right (${COL_TIME}s per column) and loops. Each time it passes an item, the item gains 1 charge; when its yellow charge bar fills, it fires. Most items need ${CHARGE_DEFAULT} charges, quick ones fewer, heavy ones more; some need fewer as they're upgraded or every time they fire. Items like Dynamo give other items charge.</li>
       <li><b>Upgrade by merging.</b> Drop an item on an identical one of the same rarity, on the board or bench, to make one item a rarity tier higher: Common → Uncommon → Rare → Super Rare → Legendary. Legendaries are already at the top and can't be upgraded. Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
       <li><b>Shiny items.</b> Rarely an item rolls shiny: +${SHINY_BONUS} multicast, so it fires an extra time every time the bar hits it. Some items multicast on their own. Merging keeps the shine.</li>
@@ -489,7 +495,7 @@ function historyPanel() {
 function rulesHtml() {
   return `<h3>How a fight works</h3>
   <ul>
-    <li>A bar sweeps your ${COLS} columns, ${COL_TIME}s per column. When it reaches an item's left edge, that item activates.</li>
+    <li>A bar sweeps your ${COLS} columns, ${COL_TIME}s per column. Each time it reaches an item's left edge, the item gains 1 charge (the yellow bar). When it's full the item fires. Most need ${CHARGE_DEFAULT}, fast items fewer, heavy items more. Some items speed up, some charge others, and passive ones never charge.</li>
     <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does ${Math.round(BURN_VS_SHIELD * 100)}% damage to Shield.</li>
     <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
     <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
@@ -851,6 +857,7 @@ function updateBattle(acc) {
       n.style.transform = `translateX(${Math.max(0, pos) * CELL}px)`;
     }
     for (const [id, n] of U.barEls) if (!alive.has(id)) { n.remove(); U.barEls.delete(id); }
+    for (const inst of F.items) if (inst.cost) U.items.get(inst.uid)?.style.setProperty('--c', Math.min(1, inst.charge / inst.cost));
   }
   ui.clock.innerHTML = `<span>${B.t.toFixed(1)}s</span>` + (B.storm ? `<b>Storm ${B.storm}/hit</b>` : `<small>storm at ${OVERTIME}s</small>`);
 }

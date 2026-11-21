@@ -399,3 +399,9 @@ button { font: inherit; color: inherit; }
 .effects .lv.tc-superrare { color: color-mix(in srgb, var(--r-superrare) 55%, var(--muted)); }
 .effects .lv.tc-legendary { color: color-mix(in srgb, var(--r-legendary) 55%, var(--muted)); }
 .upg { color: var(--accent); font-weight: 600; }
+
+/* ---------- Charge bar (yellow, beside the icon) ---------- */
+.item .chg { position: absolute; right: 7px; top: 9px; bottom: 9px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--c-time) 18%, transparent); overflow: hidden; z-index: 1; }
+.item .chg i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--c, 0) * 100%); background: var(--c-time); border-radius: 2px; }
+.bench .item .chg { display: none; }
+.s-charge { color: var(--fg); } .s-charge .cur { color: var(--c-time); } .s-charge.passive { color: var(--muted); }

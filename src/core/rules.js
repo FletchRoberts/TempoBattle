@@ -28,6 +28,20 @@ export const maxLevel = inst => RARITIES.length - baseTier(inst.id);
 export const tierIndex = inst => Math.min(RARITIES.length - 1, baseTier(inst.id) + inst.level - 1);
 export const tierOf = inst => RARITIES[tierIndex(inst)];
 
+// Charge: the bar gives an item 1 charge each time it hits it; at its cost the item fires.
+// Passive items (only triggers, auras, gold, start effects or amplify) never charge.
+export const CHARGE_DEFAULT = 4;
+export const isActive = d => !!(d.effects && Object.keys(d.effects).length) || !!(d.special && d.special.kind !== 'amplify');
+// Flat bonuses (infusions, modifiers, flat auras, buffs, artifact adds) land every time an item fires,
+// so they're scaled by how often it fires: a 2-charge item gets half, an 8-charge item double.
+// That keeps a +5 modifier worth the same per second on any item.
+export const perFireScale = inst => (isActive(ITEMS[inst.id]) ? chargeCost(inst) / CHARGE_DEFAULT : 1);
+export const scaledBonus = (v, f) => (v > 0 ? Math.max(1, Math.round(v * f)) : v);
+export function chargeCost(inst) {
+  const c = ITEMS[inst.id].charge;
+  return Array.isArray(c) ? c[Math.min(c.length, inst.level) - 1] : (c ?? CHARGE_DEFAULT);
+}
+
 // What happens on each day, in order. 'encounter' is a placeholder slot for events / PvE.
 export const DAY_FLOW = ['shop', 'encounter', 'pvp'];
 export const ENCOUNTERS = [
@@ -186,8 +200,9 @@ export function rollShop(day, rng, rank = day) {
 export function statsOf(inst) {
   const d = def(inst), L = inst.level - 1, out = {};
   for (const [k, arr] of Object.entries(d.effects || {})) out[k] = (out[k] || 0) + arr[L];
-  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + f.v[tierIndex(inst)]; }
-  for (const id of inst.mods || []) { const m = MODIFIERS[id]; if (m.stat) out[m.stat] = (out[m.stat] || 0) + m.v; }
+  const pf = perFireScale(inst);
+  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + scaledBonus(f.v[tierIndex(inst)], pf); }
+  for (const id of inst.mods || []) { const m = MODIFIERS[id]; if (m.stat) out[m.stat] = (out[m.stat] || 0) + scaledBonus(m.v, pf); }
   return out;
 }
 export function tagsOf(inst) {

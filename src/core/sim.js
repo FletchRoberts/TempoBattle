@@ -2,9 +2,10 @@
 // with a fixed timestep, so a matchup always has the same result everywhere.
 import { ITEMS } from '../data/items.js';
 import { artifactEffects } from '../data/artifacts.js';
-import { COLS, def, statsOf, tagsOf, adjacent, inScope, uid } from './rules.js';
+import { COLS, def, statsOf, tagsOf, adjacent, inScope, uid, isActive, chargeCost, perFireScale, scaledBonus } from './rules.js';
 
-export const COL_TIME = 1;     // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 5s)
+export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 1.25s)
+export const MAX_CHARGE_CHAIN = 3; // charge-givers can set off other items at most this deep in one go
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
 export const OVERTIME = 30;    // storm starts after this many seconds
 export const STORM_BASE = 2;     // storm damage of the first hit
@@ -22,7 +23,8 @@ export class Fighter {
     hp += this.art.maxHp || 0;
     this.name = name; this.maxHp = hp; this.hp = hp;
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
-    this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0 }));
+    this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0,
+      charge: 0, cost: isActive(ITEMS[i.id]) ? chargeCost(i) : 0 }));
     this.goldEarned = 0; // gold won during this fight (paid out afterwards)
     // Multicast auras (e.g. Conductor's Baton) are positional, so work them out once.
     for (const o of this.items) {
@@ -76,17 +78,27 @@ export class Battle {
         rem -= next - bar.pos; bar.pos = next;
         if (bar.pos >= COLS) { if (bar.temp) { bar.dead = true; break; } bar.pos = 0; }
         const hits = me.items.filter(o => o.x === bar.pos).sort((a, b) => a.y - b.y);
-        for (const inst of hits) {
-          // Multicast: fire the item several times per hit (stops if it rewound this bar).
-          for (let k = 0; k < (inst.multicast || 1) + inst.extraMc; k++) {
-            if (k > 0 && bar.jump) break;
-            this.activate(i, inst, bar);
-          }
-        }
+        for (const inst of hits) this.addCharge(i, inst, 1, bar);
         if (bar.jump) break;
       }
     }
     me.bars = me.bars.filter(b => !b.dead);
+  }
+  // Give an item charge; when it reaches its cost it fires (multicast = several times) and spends it.
+  addCharge(i, inst, n, bar) {
+    if (!inst.cost) return; // passive items don't charge
+    inst.charge += n;
+    this.fx('charge', i, inst);
+    if (inst.charge < inst.cost || (this.chain || 0) >= MAX_CHARGE_CHAIN) return;
+    inst.charge -= inst.cost;
+    const d = def(inst);
+    if (d.accel) inst.cost = Math.max(d.minCharge ?? 1, inst.cost - d.accel); // speeds up each time it fires
+    this.chain = (this.chain || 0) + 1;
+    for (let k = 0; k < (inst.multicast || 1) + inst.extraMc; k++) {
+      if (k > 0 && bar?.jump) break; // a rewind already sent this bar back
+      this.activate(i, inst, bar);
+    }
+    this.chain--;
   }
   activate(i, inst, bar) {
     const me = this.f[i], d = def(inst), L = inst.level - 1, sp = d.special;
@@ -103,14 +115,14 @@ export class Battle {
       if (!a || !a.stat || o === inst || !st[a.stat] || (a.tag && !tagsOf(inst).has(a.tag))
         || !inScope(a.scope, o, inst) || !this.condOk(i, a.cond)) continue;
       const av = a.v[o.level - 1];
-      st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + av;
+      st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + scaledBonus(av, perFireScale(inst));
     }
     if (st.gold) { // gold on trigger, capped per item per fight
       const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
       if (give) { inst.goldEarned += give; me.goldEarned += give; this.fx('float', i, `+${give}g`, 'gold'); }
       delete st.gold;
     }
-    const events = this.applyStats(i, st, mult);
+    const events = this.applyStats(i, st, mult, perFireScale(inst));
     if (sp) this.applySpecial(i, inst, sp, L, bar);
     events.add('activate');
     if (!this.depth) this.fireTriggers(i, inst, events);
@@ -147,6 +159,7 @@ export class Battle {
     const me = this.f[i];
     if (me.art.startShield) this.applyStats(i, { shield: me.art.startShield }, 1);
     if (me.art.startHaste) me.hastes.push({ src: 'artifact', v: 0.5, until: me.art.startHaste });
+    if (me.art.startCharge) for (const o of me.items) if (o.cost) o.charge = Math.min(o.cost - 1, o.charge + me.art.startCharge);
     for (const inst of this.f[i].items) {
       const s0 = def(inst).start; if (!s0) continue;
       const L = inst.level - 1, st = {};
@@ -157,11 +170,11 @@ export class Battle {
     }
   }
   // Applies stats and returns which kinds of effect happened (for triggers).
-  applyStats(i, st, mult) {
+  applyStats(i, st, mult, perFire = 1) {
     const me = this.f[i], foe = this.f[1 - i], events = new Set(), A = me.art;
     // Artifacts scale or add to what you apply (only to effects the item actually has).
     const artMult = { damage: 1 + (A.dmgPct || 0), heal: 1 + (A.healPct || 0), shield: 1 + (A.shieldPct || 0) };
-    const artAdd = { burn: A.burnAdd || 0, poison: A.poisonAdd || 0 };
+    const artAdd = { burn: scaledBonus(A.burnAdd || 0, perFire), poison: scaledBonus(A.poisonAdd || 0, perFire) };
     const val = k => {
       const base = (st[k] || 0) * mult;
       const x = base > 0 ? Math.round(base * (artMult[k] || 1) + (artAdd[k] || 0)) : 0;
@@ -185,19 +198,27 @@ export class Battle {
     const me = this.f[i], foe = this.f[1 - i], sv = sp.v[L];
     switch (sp.kind) {
       case 'buffAdj':
-        for (const o of me.items) if (o !== inst && adjacent(o, inst) && tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o); }
+        for (const o of me.items) if (o !== inst && adjacent(o, inst) && tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o); }
         break;
       case 'buffAll':
-        for (const o of me.items) if (tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o); }
+        for (const o of me.items) if (tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o); }
         break;
-      case 'buffRow': case 'buffCol': {
-        const scope = sp.kind === 'buffRow' ? 'row' : 'column';
-        for (const o of me.items) if (o !== inst && inScope(scope, inst, o) && statsOf(o)[sp.stat]) {
-          o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + sv; this.fx('buff', i, o);
+      case 'charge': { // give other items charge (they fire right away if that fills them)
+        for (const o of me.items) {
+          if (o === inst || !o.cost || (sp.tag && !tagsOf(o).has(sp.tag))) continue;
+          if (sp.scope === 'adjacent' ? !adjacent(inst, o) : !inScope(sp.scope, inst, o)) continue;
+          this.fx('buff', i, o); this.addCharge(i, o, sv, null);
         }
         break;
       }
-      case 'grow': inst.bonus[sp.stat] = (inst.bonus[sp.stat] || 0) + sv; this.fx('buff', i, inst); break;
+      case 'buffRow': case 'buffCol': {
+        const scope = sp.kind === 'buffRow' ? 'row' : 'column';
+        for (const o of me.items) if (o !== inst && inScope(scope, inst, o) && statsOf(o)[sp.stat]) {
+          o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o);
+        }
+        break;
+      }
+      case 'grow': inst.bonus[sp.stat] = (inst.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(inst)); this.fx('buff', i, inst); break;
       case 'haste': this.timed(me.hastes, inst, sv, sp.dur ?? 3); this.fx('float', i, 'haste', 'time'); break;
       case 'slow': this.timed(foe.slows, inst, sv, sp.dur ?? 3); this.fx('float', 1 - i, 'slowed', 'slow'); break;
       case 'overclock': me.speedPerm += sv; this.fx('float', i, 'overclock', 'time'); break;
