@@ -1,6 +1,7 @@
 // Deterministic combat simulation. The game, the bots and the rating tool all run this exact code
 // with a fixed timestep, so a matchup always has the same result everywhere.
 import { ITEMS } from '../data/items.js';
+import { artifactEffects } from '../data/artifacts.js';
 import { COLS, def, statsOf, tagsOf, adjacent, uid } from './rules.js';
 
 export const COL_TIME = 0.5;   // seconds for a bar to cross one column at speed ×1
@@ -17,12 +18,14 @@ export const HEAL_CLEANSE = 0.2;    // each Heal also removes this share of your
 export const BURN_VS_SHIELD = 0.5;  // Burn deals only this much of its damage to Shield
 
 export class Fighter {
-  constructor(name, items, hp) {
+  constructor(name, items, hp, artifacts = {}) {
+    this.art = artifactEffects(artifacts);
+    hp += this.art.maxHp || 0;
     this.name = name; this.maxHp = hp; this.hp = hp;
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
     this.items = items.map(i => ({ ...i, bonus: {}, uses: 0 }));
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
-    this.speedPerm = 1; this.hastes = []; this.slows = [];
+    this.speedPerm = 1 + (this.art.speed || 0); this.hastes = []; this.slows = [];
   }
   speed(t) {
     let s = this.speedPerm;
@@ -130,6 +133,9 @@ export class Battle {
   }
   // Battle start: items with a `start` block fire it once, before any bar moves.
   battleStart(i) {
+    const me = this.f[i];
+    if (me.art.startShield) this.applyStats(i, { shield: me.art.startShield }, 1);
+    if (me.art.startHaste) me.hastes.push({ src: 'artifact', v: 0.5, until: me.art.startHaste });
     for (const inst of this.f[i].items) {
       const s0 = def(inst).start; if (!s0) continue;
       const L = inst.level - 1, st = {};
@@ -141,8 +147,16 @@ export class Battle {
   }
   // Applies stats and returns which kinds of effect happened (for triggers).
   applyStats(i, st, mult) {
-    const me = this.f[i], foe = this.f[1 - i], events = new Set();
-    const val = k => { const x = Math.round((st[k] || 0) * mult); if (x > 0) events.add(k); return x; };
+    const me = this.f[i], foe = this.f[1 - i], events = new Set(), A = me.art;
+    // Artifacts scale or add to what you apply (only to effects the item actually has).
+    const artMult = { damage: 1 + (A.dmgPct || 0), heal: 1 + (A.healPct || 0), shield: 1 + (A.shieldPct || 0) };
+    const artAdd = { burn: A.burnAdd || 0, poison: A.poisonAdd || 0 };
+    const val = k => {
+      const base = (st[k] || 0) * mult;
+      const x = base > 0 ? Math.round(base * (artMult[k] || 1) + (artAdd[k] || 0)) : 0;
+      if (x > 0) events.add(k);
+      return x;
+    };
     let v;
     if ((v = val('maxhp')) > 0) { me.maxHp += v; me.hp += v; this.fx('float', i, `+${v} max`, 'heal'); }
     if ((v = val('shield')) > 0) { me.shield += v; this.fx('float', i, `+${v}`, 'shield'); }
@@ -207,7 +221,7 @@ export class Battle {
   // and grows exponentially so stacked Shield can't stall forever.
   stormTick() {
     this.storm = Math.round(STORM_BASE * STORM_GROWTH ** this.stormHits++);
-    for (let i = 0; i < 2; i++) this.hit(i, this.storm, 'storm');
+    for (let i = 0; i < 2; i++) this.hit(i, Math.round(this.storm * (1 - (this.f[i].art.stormWard || 0))), 'storm');
   }
   checkEnd() {
     const [a, b] = this.f;
@@ -219,14 +233,14 @@ export class Battle {
 }
 
 // Run a full fight without visuals. Returns 'win' | 'loss' | 'draw' for side A.
-export function simulate(itemsA, itemsB, hp) {
-  const B = new Battle(new Fighter('A', itemsA, hp), new Fighter('B', itemsB, hp));
+export function simulate(itemsA, itemsB, hp, artsA = {}, artsB = {}) {
+  const B = new Battle(new Fighter('A', itemsA, hp, artsA), new Fighter('B', itemsB, hp, artsB));
   while (!B.done) B.step(SIM_DT);
   return B.result;
 }
 
 // Score A vs B from both seats (side 0 acts first within a tick), 0..1 for A.
-export function duel(itemsA, itemsB, hp) {
+export function duel(itemsA, itemsB, hp, artsA = {}, artsB = {}) {
   const pts = { win: 1, draw: 0.5, loss: 0 };
-  return (pts[simulate(itemsA, itemsB, hp)] + (1 - pts[simulate(itemsB, itemsA, hp)])) / 2;
+  return (pts[simulate(itemsA, itemsB, hp, artsA, artsB)] + (1 - pts[simulate(itemsB, itemsA, hp, artsB, artsA)])) / 2;
 }

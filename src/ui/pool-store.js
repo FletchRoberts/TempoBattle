@@ -24,9 +24,9 @@ export class PoolStore {
   }
 
   // Rate a player's board against the day's field and add it to the pool for future runs.
-  submit({ runId, day, name, items }) {
-    const wr = rateAgainst(items, this.base(day), day);
-    const team = { id: `local-${runId}-d${day}`, runId, day: this.dayKey(day), name, source: 'player', items, wr };
+  submit({ runId, day, name, items, artifacts = {} }) {
+    const wr = rateAgainst(items, this.base(day), day, artifacts);
+    const team = { id: `local-${runId}-d${day}`, runId, day: this.dayKey(day), name, source: 'player', items, artifacts, wr };
     this.local = [...this.local.filter(t => t.id !== team.id), team].slice(-MAX_LOCAL);
     save(this.local);
     return team;

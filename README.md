@@ -43,6 +43,9 @@ game skips straight to the fight for now.
 | Infusion | An essence adds a second stat and its tag to an item. |
 | Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
+| HP curve | Base max HP grows 12% a day: 40, 45, 50, 56 … 111 on Day 10, 156 on Day 13 (`HP_BASE`, `HP_GROWTH`). |
+| Artifacts | Run-wide passives in `src/data/artifacts.js`. Choose 1 of 3 on Days 3, 6, 9 … (and from a Treasure Map); picking one again levels it up to IV. They're saved with your board so opponents carry theirs. |
+| Gold items | `gold: { when, v, grow? }` pays out after fights while on your board (Coin Purse, Merchant's Ledger, Piggy Bank, Golden Idol). `map` grants an artifact choice after N fights. |
 | Max HP | `maxhp` stat: raises max HP and current HP (Heart Locket, Troll Blood, Giant's Belt). |
 | Triggers | `on: { event, scope, effects }`: an item reacts when your other items activate, apply Burn/Poison, gain Shield, Heal or deal damage. Triggered effects don't chain. |
 | Auras | `aura: { tag, stat, v, pct?, cond? }`: passive bonus to your other items of a tag, optionally only under a condition (e.g. enemy below half HP). |

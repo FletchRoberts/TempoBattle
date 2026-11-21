@@ -177,6 +177,20 @@ export const ITEMS = {
   lens:     { name: 'Inferno Lens',  icon: '🔍', rarity: 'legendary', w: 1, h: 1, tags: ['fire', 'tool'],
               special: { kind: 'ignite', v: [1.3, 1.4, 1.55, 1.75] } },
 
+  // ---------- Economy: pay out after fights (only while on your board) ----------
+  // gold: { when: 'fight' | 'win', v }   grow: payout starts at 1 and rises by 1 each fight, up to v
+  purse:    { name: 'Coin Purse',    icon: '👛', rarity: 'common', w: 1, h: 1, tags: ['tool'],
+              gold: { when: 'fight', v: [1, 2, 3, 4] } },
+  ledger:   { name: "Merchant's Ledger", icon: '📒', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+              gold: { when: 'win', v: [3, 4, 6, 8] } },
+  piggy:    { name: 'Piggy Bank',    icon: '🐷', rarity: 'rare', w: 1, h: 2, tags: ['tool'],
+              gold: { when: 'fight', grow: true, v: [3, 5, 7, 10] } },
+  idol:     { name: 'Golden Idol',   icon: '🏺', rarity: 'epic', w: 1, h: 1, tags: ['tool', 'shield'],
+              effects: { shield: [3, 4, 6, 8] }, gold: { when: 'fight', v: [3, 4, 6, 8] } },
+  // map: after this many fights on your board it's used up and you choose an artifact.
+  map:      { name: 'Treasure Map',  icon: '🗺️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+              map: { v: [3, 2, 2, 1] } },
+
   // ---------- Max HP ----------
   locket:   { name: 'Heart Locket',  icon: '💖', rarity: 'common', w: 1, h: 1, tags: ['heal'],
               effects: { heal: [2, 3, 4, 6] }, start: { effects: { maxhp: [8, 12, 18, 26] } } },

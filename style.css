@@ -330,7 +330,7 @@ button { font: inherit; color: inherit; }
 /* ---------- Triggers, auras, Last Stand ---------- */
 .s-trigger b { color: var(--c-time); font-weight: 600; }
 .s-aura b { color: var(--c-mod); font-weight: 600; }
-.last-stand { max-width: 720px; }
+.over-card.last-stand { width: min(760px, 100%); max-width: none; }
 .last-stand h2 { font-size: 32px; text-transform: uppercase; letter-spacing: 0.06em; }
 .boons { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; text-align: left; }
 .boon { display: grid; gap: 4px; align-content: start; padding: 14px; background: var(--panel-2); border: 1px solid var(--line);
@@ -338,4 +338,25 @@ button { font: inherit; color: inherit; }
 .boon:hover, .boon:focus-visible { border-color: var(--r-legendary); }
 .boon .b-ico { font-size: 28px; }
 .boon b { font-family: var(--f-display); font-size: 16px; }
-.boon span:last-child { color: var(--muted); font-size: 13px; }
+.boon > span:last-child { color: var(--muted); font-size: 13px; }
+
+/* ---------- Artifacts, gold payouts ---------- */
+.artifact-pick h2 { font-size: 28px; }
+.boon.artifact { border-top-color: var(--accent); }
+.boon .chip { justify-self: start; }
+.boon .a-text, .art-list .a-text { color: var(--muted); font-size: 13px; }
+.boon .cur, .art-list .cur { color: var(--fg); font-family: var(--f-mono); font-weight: 600; }
+.boon .lv, .art-list .lv { font-family: var(--f-mono); font-size: 11px; }
+.boon .sep, .art-list .sep { color: var(--line); margin: 0 2px; }
+.artifacts-panel { display: grid; gap: 8px; }
+.artifacts-panel p { margin: 0; font-size: 13px; }
+.art-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.art-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; align-items: start; }
+.art-list .a-ico { font-size: 20px; }
+.art-list b { display: block; font-size: 13px; }
+.art-list small { color: var(--muted); font-family: var(--f-mono); }
+.f-arts { font-size: 14px; letter-spacing: 2px; }
+.s-gold b { color: var(--accent); font-weight: 600; }
+.pay { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 12px; color: var(--muted); text-align: left; }
+.pay li { display: flex; justify-content: space-between; gap: 12px; }
+.pay b { color: var(--accent); font-family: var(--f-mono); }

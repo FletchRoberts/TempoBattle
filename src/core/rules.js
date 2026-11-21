@@ -70,7 +70,9 @@ function rollMod(rng) {
   return entries[0][0];
 }
 export const rerollCost = n => 1 + n;
-export const maxHp = day => 40 + 10 * (day - 1);
+// Max HP grows on a curve: each day is HP_GROWTH times the last (40, 45, 50, 56, ... 156 on Day 13).
+export const HP_BASE = 40, HP_GROWTH = 1.12;
+export const maxHp = day => Math.round(HP_BASE * HP_GROWTH ** (day - 1));
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 
 export function starterBoard() {

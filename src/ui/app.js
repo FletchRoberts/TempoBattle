@@ -9,6 +9,7 @@ import {
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
+import { ARTIFACTS, ARTIFACT_DAYS, artifactEffects } from '../data/artifacts.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -29,7 +30,7 @@ function newRun() {
   rng = makeRng(Date.now());
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
-    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false,
+    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, artifacts: {}, artifactPicks: 0,
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
@@ -58,9 +59,33 @@ function nextDay(result) {
   }
   advanceDay(result);
 }
+// Gold after a fight: daily income + gold items on your board + artifacts. With commit, also
+// advances item counters (Piggy Bank, Treasure Map).
+function fightPayout(result, commit) {
+  const won = result === 'win', lines = [];
+  let total = income(S.day, won);
+  lines.push(['Daily income', total]);
+  for (const inst of [...S.board]) {
+    const d = def(inst), L = inst.level - 1;
+    if (d.gold && !(d.gold.when === 'win' && !won)) {
+      const amt = d.gold.grow ? Math.min((inst.charge || 0) + 1, d.gold.v[L]) : d.gold.v[L];
+      if (commit && d.gold.grow) inst.charge = amt;
+      total += amt; lines.push([d.name, amt]);
+    }
+    if (d.map && commit) {
+      inst.charge = (inst.charge || 0) + 1;
+      if (inst.charge >= d.map.v[L]) { S.board = S.board.filter(o => o !== inst); S.artifactPicks++; toast('Your Treasure Map led to an artifact!'); }
+    }
+  }
+  const tithe = artifactEffects(S.artifacts).gold || 0;
+  if (tithe) { total += tithe; lines.push([ARTIFACTS.tithe.name, tithe]); }
+  return { total, lines };
+}
 function advanceDay(result) {
-  S.gold += income(S.day, result === 'win');
-  S.day++; S.rerolls = 0; S.phase = 'shop';
+  S.gold += fightPayout(result, true).total;
+  S.day++; S.rerolls = 0;
+  if (S.day % ARTIFACT_DAYS === 0) S.artifactPicks++;
+  S.phase = S.artifactPicks ? 'artifact' : 'shop';
   // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
   const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
   const fresh = rollShop(S.day, rng);
@@ -74,6 +99,51 @@ function advanceDay(result) {
 }
 
 const myMaxHp = () => maxHp(S.day) + (S.bonusHp || 0);
+const freeRerolls = () => artifactEffects(S.artifacts).freeRerolls || 0;
+const currentRerollCost = () => (S.rerolls < freeRerolls() ? 0 : rerollCost(S.rerolls - freeRerolls()));
+
+// ===================== Artifacts =====================
+function artifactText(id, lvl) {
+  const a = ARTIFACTS[id], f = a.fmt || (x => x);
+  return a.text(a.v.map((x, i) => `<span class="${i === lvl - 1 ? 'cur' : 'lv'}">${f(x)}</span>`).join('<span class="sep">›</span>'));
+}
+function renderArtifactPick() {
+  if (!S.artifactChoices) {
+    const open = Object.keys(ARTIFACTS).filter(id => (S.artifacts[id] || 0) < 4);
+    S.artifactChoices = rng.shuffle(open).slice(0, 3);
+  }
+  const v = $('#view'); v.className = 'over'; v.innerHTML = '';
+  const card = el('section', 'panel over-card last-stand artifact-pick');
+  card.innerHTML = `<p class="eyebrow">Day ${S.day}</p><h2>Choose an artifact</h2>
+    <p class="muted">Artifacts last the whole run. Picking one you already have levels it up (max IV).</p>`;
+  const row = el('div', 'boons');
+  for (const id of S.artifactChoices) {
+    const a = ARTIFACTS[id], have = S.artifacts[id] || 0;
+    const btn = el('button', 'boon artifact', `<span class="b-ico">${a.icon}</span><b>${a.name}</b>
+      <span class="chip">${have ? `Level ${LV[have - 1]} → ${LV[have]}` : 'New'}</span><span class="a-text">${artifactText(id, have + 1)}</span>`);
+    btn.type = 'button';
+    btn.onclick = () => {
+      S.artifacts[id] = have + 1; S.artifactPicks--; S.artifactChoices = null;
+      toast(`${a.name} ${have ? `is now level ${LV[have]}` : 'added'}`);
+      S.phase = S.artifactPicks ? 'artifact' : 'shop'; render();
+    };
+    row.append(btn);
+  }
+  card.append(row);
+  v.append(card);
+  row.querySelector('button').focus();
+}
+function artifactsPanel() {
+  const p = el('section', 'panel artifacts-panel');
+  p.append(el('h3', '', 'Artifacts'));
+  const ids = Object.keys(S.artifacts);
+  if (!ids.length) { p.append(el('p', 'muted', `You'll choose one every ${ARTIFACT_DAYS} days. Next on Day ${Math.ceil((S.day + 1) / ARTIFACT_DAYS) * ARTIFACT_DAYS}.`)); return p; }
+  const ul = el('ul', 'art-list');
+  for (const id of ids) ul.append(el('li', '', `<span class="a-ico">${ARTIFACTS[id].icon}</span><div><b>${ARTIFACTS[id].name} <small>${LV[S.artifacts[id] - 1]}</small></b><span class="a-text">${artifactText(id, S.artifacts[id])}</span></div>`));
+  p.append(ul);
+  return p;
+}
+const artifactIcons = arts => Object.entries(arts || {}).map(([id, l]) => `<span title="${ARTIFACTS[id]?.name} ${LV[l - 1]}">${ARTIFACTS[id]?.icon ?? ''}</span>`).join('');
 
 // ===================== Last Stand =====================
 // The first time you run out of lives you pick one rare boon and keep going on 1 life.
@@ -86,6 +156,7 @@ const BOONS = [
   { id: 'hoard', icon: '💰', name: 'Hidden Hoard', text: 'Gain 30 gold.', apply() { S.gold += 30; } },
   { id: 'mastery', icon: '⬆️', name: 'Mastery', text: 'Your best item below level III goes up one level.',
     apply() { const it = [...S.board, ...S.bench].filter(o => o.level < 3).sort((a, b) => b.level - a.level || priceOf(b) - priceOf(a))[0]; if (it) it.level++; } },
+  { id: 'relic', icon: '🏆', name: 'Relic Hunter', text: 'Choose an artifact right away.', apply() { S.artifactPicks++; } },
   { id: 'arcana', icon: '🔮', name: 'Arcana', text: 'Take an Echo Rune and two Wild Essences.',
     apply() { S.consumables.push({ kind: 'mod', id: 'echoRune' }, { kind: 'essence' }, { kind: 'essence' }); } },
 ];
@@ -121,6 +192,13 @@ export function describe(inst) {
     if (d.start.special) { const SP = SPECIALS[d.start.special.kind]; parts.push(SP.text(d.start.special, prog(d.start.special.v, L, SP.fmt)).replace(/\. Triggering again refreshes it$/, '')); }
     lines.unshift(`<li class="s-start"><b>Battle start:</b> ${parts.join('. ')}</li>`);
   }
+  if (d.gold) {
+    const when = d.gold.when === 'win' ? 'After you win a fight' : 'After each fight';
+    lines.push(`<li class="s-gold"><b>${when}:</b> ${d.gold.grow
+      ? `gain 1 gold, then 1 more each fight, up to ${prog(d.gold.v, L)}${inst.charge ? ` (paying ${inst.charge} now)` : ''}`
+      : `gain ${prog(d.gold.v, L)} gold`}</li>`);
+  }
+  if (d.map) lines.push(`<li class="s-gold"><b>After ${prog(d.map.v, L)} fights on your board:</b> it's used up and you choose an artifact${inst.charge ? ` (${inst.charge} done)` : ''}</li>`);
   if (d.on) {
     const parts = Object.entries(d.on.effects || {}).map(([k, arr]) => STAT_TEXT[k](prog(arr, L)).replace(/^./, c => c.toLowerCase()));
     lines.push(`<li class="s-trigger"><b>${ON_EVENT[d.on.event](d.on)}:</b> ${parts.join(', ')}</li>`);
@@ -185,8 +263,9 @@ function timeline(items, opts = {}) {
 
 function renderHud() {
   const lives = `<span class="hearts"><i class="on">♥</i></span> ${S.lives}<small>/${START_LIVES}</small>`;
-  const flowName = { shop: 'Shop', encounter: 'Encounter', pvp: 'PvP fight' };
-  const flow = S.phase === 'over' ? '' : DAY_FLOW.map(p => {
+  const flowName = { artifact: 'Artifact', shop: 'Shop', encounter: 'Encounter', pvp: 'PvP fight' };
+  const steps = S.day % ARTIFACT_DAYS === 0 || S.phase === 'artifact' ? ['artifact', ...DAY_FLOW] : DAY_FLOW;
+  const flow = ['over', 'laststand'].includes(S.phase) ? '' : steps.map(p => {
     const soon = p === 'encounter' && !ENCOUNTERS.some(e => e.enabled);
     return `<li class="${p === S.phase ? 'now' : ''}${soon ? ' soon' : ''}">${flowName[p]}${soon ? ' <small>soon</small>' : ''}</li>`;
   }).join('');
@@ -197,7 +276,7 @@ function renderHud() {
       <div><dt>Day</dt><dd>${S.day}</dd></div>
       <div><dt>Wins</dt><dd>${S.wins}<small>/${WINS_TO_CLEAR}</small></dd></div>
       <div title="Lives lost on a defeat today"><dt>Lives · loss −${lifeLoss(S.day)}</dt><dd>${lives}</dd></div>
-      <div><dt>Max HP</dt><dd>${myMaxHp()}</dd></div>
+      <div><dt>Max HP</dt><dd>${myMaxHp() + (artifactEffects(S.artifacts).maxHp || 0)}</dd></div>
       <div class="gold"><dt>Gold</dt><dd>${S.gold}</dd></div>
     </dl>
     <div class="hud-btns"><button type="button" class="btn ghost sm" id="help-btn">How to play</button>
@@ -250,6 +329,8 @@ function showHelp() {
       <li><b>Modify.</b> Buy a modifier (like +3 Damage), click it below your bench, then click an item. Items hold level + 1 modifiers.</li>
       <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
+      <li><b>Artifacts.</b> Every ${ARTIFACT_DAYS} days you choose 1 of 3 artifacts: run-wide bonuses like a faster bar or more damage. Picking one again levels it up. A Treasure Map also earns you a pick.</li>
+      <li><b>Gold items.</b> Coin Purse, Piggy Bank and others pay out gold after fights while they're on your board.</li>
       <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before your ${START_LIVES} lives run out. A loss costs ${lifeLoss(1)} life on Days 1–3, ${lifeLoss(4)} on Days 4–7 and ${lifeLoss(8)} after that. The first time you run out, you get a Last Stand: pick a rare boon and fight on with 1 life.</li>
     </ol>
     <h3>Effects</h3>
@@ -282,6 +363,7 @@ function render() {
   else if (S.phase === 'encounter') renderEncounter();
   else if (S.phase === 'pvp') renderBattle();
   else if (S.phase === 'laststand') renderLastStand();
+  else if (S.phase === 'artifact') renderArtifactPick();
   else renderOver();
 }
 
@@ -325,9 +407,10 @@ function renderShop() {
     row.append(c);
   });
   offers.append(row);
-  const reroll = el('button', 'btn ghost', `Reroll · ${rerollCost(S.rerolls)}g`); reroll.type = 'button';
-  reroll.disabled = S.gold < rerollCost(S.rerolls);
-  reroll.onclick = () => { const c = rerollCost(S.rerolls); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng); render(); };
+  const rc = currentRerollCost();
+  const reroll = el('button', 'btn ghost', `Reroll · ${rc ? rc + 'g' : 'free'}`); reroll.type = 'button';
+  reroll.disabled = S.gold < rc;
+  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng); render(); };
   const freeze = el('button', 'btn ghost freeze' + (S.frozen ? ' on' : ''), S.frozen ? '❄ Frozen' : 'Freeze shop'); freeze.type = 'button';
   freeze.setAttribute('aria-pressed', S.frozen);
   freeze.title = 'Keep the unsold offers for the next shop';
@@ -370,7 +453,7 @@ function renderShop() {
   fight.onclick = advancePhase;
 
   left.append(offers, boardP, stash);
-  right.append(el('section', 'panel inspector'), fight, historyPanel(), el('section', 'panel rules', rulesHtml()));
+  right.append(el('section', 'panel inspector'), fight, artifactsPanel(), historyPanel(), el('section', 'panel rules', rulesHtml()));
   v.append(left, right);
 
   bindDrag(v);
@@ -588,7 +671,8 @@ function startBattle() {
   S.opponent = opp; S.faced.add(opp.id);
   S.mySnapshot = snapshot(S.board);
   const hp = maxHp(S.day);
-  S.battle = new Battle(new Fighter('You', S.board, myMaxHp()), new Fighter(opp.name, fromSnapshot(opp.items), hp), onFx);
+  S.battle = new Battle(new Fighter('You', S.board, myMaxHp(), S.artifacts),
+    new Fighter(opp.name, fromSnapshot(opp.items), hp, opp.artifacts || {}), onFx);
   S.selected = null; S.pending = null;
   S.phase = 'pvp'; render();
 }
@@ -606,7 +690,8 @@ function renderBattle() {
     const panel = el('section', 'panel fighter' + (i ? ' is-enemy' : ''));
     const head = el('header', 'f-head');
     const sub = i ? `<span class="opp-meta">${oppLabel(o)} · rated <b>${pct(o.wr)}</b></span>` : '';
-    head.innerHTML = `<div class="f-name"><h2>${i ? F.name : 'You'}</h2>${sub}<span class="speed"></span></div>
+    const arts = artifactIcons(i ? o.artifacts : S.artifacts);
+    head.innerHTML = `<div class="f-name"><h2>${i ? F.name : 'You'}</h2>${sub}${arts ? `<span class="f-arts">${arts}</span>` : ''}<span class="speed"></span></div>
       <div class="hp"><div class="hp-fill"></div><div class="hp-shield"></div><span class="hp-text"></span></div>
       <div class="status"></div><div class="floats"></div>`;
     const tl = timeline(F.items, { enemy: !!i });
@@ -684,7 +769,8 @@ function onFx(type, i, a, b) {
 }
 function showResult(res) {
   if (S.phase !== 'pvp' || $('.modal')) return;
-  const gain = income(S.day, res === 'win');
+  const pay = fightPayout(res, false), gain = pay.total;
+  const payLines = pay.lines.length > 1 ? `<ul class="pay">${pay.lines.map(([n, g]) => `<li><span>${n}</span><b>+${g}</b></li>`).join('')}</ul>` : '';
   const title = { win: 'Victory', loss: 'Defeat', draw: 'Draw' }[res];
   const cost = lifeLoss(S.day);
   const last = res === 'loss' && S.lives - cost <= 0;
@@ -694,7 +780,7 @@ function showResult(res) {
   const m = el('div', 'modal');
   m.innerHTML = `<div class="modal-card ${res}"><h2>${title}</h2><p>${sub}</p>
     <p class="rating">Rating your board against Day ${S.day}'s field…</p>
-    ${last && S.lastStandUsed ? '' : `<p class="income">+${gain} gold next shop</p>`}
+    ${last && S.lastStandUsed ? '' : `<p class="income">+${gain} gold next shop</p>${payLines}`}
     <button type="button" class="btn fight" id="cont">Continue <span>→</span></button></div>`;
   document.body.append(m);
   const cont = $('#cont', m);
@@ -702,7 +788,7 @@ function showResult(res) {
   cont.focus();
   // Rate and save the player's board so it can be matched against future runs.
   setTimeout(() => {
-    const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot });
+    const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot, artifacts: { ...S.artifacts } });
     $('.rating', m).innerHTML = `Your board wins <b>${pct(team.wr)}</b> against Day ${S.day}'s field. It's now in the opponent pool.`;
   }, 30);
 }

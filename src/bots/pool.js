@@ -44,7 +44,7 @@ export function rateField(teams, day) {
   const hp = maxHp(day), boards = teams.map(t => fromSnapshot(t.items));
   const score = new Array(teams.length).fill(0);
   for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) {
-    const s = duel(boards[i], boards[j], hp);
+    const s = duel(boards[i], boards[j], hp, teams[i].artifacts, teams[j].artifacts);
     score[i] += s; score[j] += 1 - s;
   }
   teams.forEach((t, i) => { t.wr = +(score[i] / Math.max(1, teams.length - 1)).toFixed(3); });
@@ -52,10 +52,10 @@ export function rateField(teams, day) {
 }
 
 // Rate one new board (e.g. a player's) against an existing field without re-rating the field.
-export function rateAgainst(items, field, day) {
+export function rateAgainst(items, field, day, artifacts = {}) {
   const hp = maxHp(day), me = fromSnapshot(items);
   let s = 0;
-  for (const t of field) s += duel(me, fromSnapshot(t.items), hp);
+  for (const t of field) s += duel(me, fromSnapshot(t.items), hp, artifacts, t.artifacts);
   return +(s / Math.max(1, field.length)).toFixed(3);
 }
 
