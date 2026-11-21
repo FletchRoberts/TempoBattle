@@ -1,0 +1,9 @@
+{
+  "name": "tempobattle",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/serve.js",
+    "pool": "node tools/build-pool.js"
+  }
+}

@@ -1,0 +1,105 @@
+// Run rules, economy and board helpers. No DOM here: shared by the game, the bots and the Node tools.
+import { ITEMS, RARITY, INFUSIONS } from '../data/items.js';
+
+export const COLS = 10, ROWS = 3;
+export const BENCH_MAX = 8, START_LIVES = 4, WINS_TO_CLEAR = 10, START_GOLD = 12;
+export const MAX_DAYS = START_LIVES + WINS_TO_CLEAR - 1; // longest possible run
+export const SHOP_ITEMS = 5;
+export const LV = ['I', 'II', 'III', 'IV'];
+
+// What happens on each day, in order. 'encounter' is a placeholder slot for events / PvE.
+export const DAY_FLOW = ['shop', 'encounter', 'pvp'];
+export const ENCOUNTERS = [
+  { id: 'merchant', name: 'Wandering Merchant', enabled: false },
+  { id: 'monster', name: 'PvE Monster', enabled: false },
+  { id: 'shrine', name: 'Mystery Shrine', enabled: false },
+];
+
+let uidSeq = 1;
+export const uid = () => uidSeq++;
+
+export const def = inst => ITEMS[inst.id];
+export function newInst(id, level = 1) {
+  const d = ITEMS[id];
+  return { uid: uid(), id, level, infusion: null, w: d.w, h: d.h, x: -1, y: -1 };
+}
+export const priceOf = inst => RARITY[def(inst).rarity].price * inst.level;
+export const sellValue = inst => Math.max(1, Math.floor(priceOf(inst) / 2));
+export const upgradeCost = inst => RARITY[def(inst).rarity].price * (inst.level + 1);
+export const rerollCost = n => 1 + n;
+export const maxHp = day => 40 + 10 * (day - 1);
+export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
+
+export function starterBoard() {
+  const d = newInst('dagger'); d.x = 0; d.y = 1;
+  const b = newInst('buckler'); b.x = 2; b.y = 0;
+  return [d, b];
+}
+
+// ---------- Shop ----------
+export function rarityWeights(day) {
+  return {
+    common: Math.max(20, 80 - day * 7), rare: 20 + day * 2,
+    epic: day >= 3 ? (day - 2) * 5 : 0, legendary: day >= 5 ? (day - 4) * 3 : 0,
+  };
+}
+export function rollRarity(day, rng) {
+  const w = rarityWeights(day);
+  let t = rng.next() * Object.values(w).reduce((a, b) => a + b, 0);
+  for (const [k, v] of Object.entries(w)) if ((t -= v) < 0) return k;
+  return 'common';
+}
+export function rollItemId(day, rng) {
+  const r = rollRarity(day, rng);
+  return rng.pick(Object.keys(ITEMS).filter(k => ITEMS[k].rarity === r));
+}
+export function rollShop(day, rng) {
+  const offers = [];
+  for (let i = 0; i < SHOP_ITEMS; i++) {
+    const level = day > 3 && rng.chance(Math.min(0.35, (day - 3) * 0.06)) ? 2 : 1;
+    const inst = newInst(rollItemId(day, rng), level);
+    offers.push({ kind: 'item', inst, price: priceOf(inst), sold: false });
+  }
+  const ess = rng.shuffle(Object.keys(INFUSIONS)).slice(0, day >= 2 ? 2 : 1);
+  for (const type of ess) offers.push({ kind: 'essence', type, price: INFUSIONS[type].price, sold: false });
+  return offers;
+}
+
+// ---------- Item maths ----------
+export function statsOf(inst) {
+  const d = def(inst), L = inst.level - 1, out = {};
+  for (const [k, arr] of Object.entries(d.effects || {})) out[k] = (out[k] || 0) + arr[L];
+  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + f.v[L]; }
+  return out;
+}
+export function tagsOf(inst) {
+  const t = new Set(def(inst).tags);
+  if (inst.infusion) t.add(INFUSIONS[inst.infusion].tag);
+  return t;
+}
+
+// ---------- Grid geometry ----------
+export function adjacent(a, b) {
+  const yOverlap = a.y < b.y + b.h && b.y < a.y + a.h;
+  const xOverlap = a.x < b.x + b.w && b.x < a.x + a.w;
+  return (yOverlap && (a.x + a.w === b.x || b.x + b.w === a.x)) ||
+         (xOverlap && (a.y + a.h === b.y || b.y + b.h === a.y));
+}
+export function canPlace(board, x, y, w, h, ignoreUid) {
+  if (x < 0 || y < 0 || x + w > COLS || y + h > ROWS) return false;
+  return !board.some(o => o.uid !== ignoreUid && x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h);
+}
+export function itemAt(board, cx, cy) {
+  return board.find(o => cx >= o.x && cx < o.x + o.w && cy >= o.y && cy < o.y + o.h);
+}
+export function freeSpots(board, w, h) {
+  const out = [];
+  for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) if (canPlace(board, x, y, w, h)) out.push([x, y]);
+  return out;
+}
+
+// ---------- Snapshots (what gets stored in the opponent pool) ----------
+// Compact form: [id, level, x, y, w, h, infusion|0]
+export const snapshot = board => board.map(o => [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0]);
+export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf]) =>
+  ({ uid: uid(), id, level, x, y, w, h, infusion: inf || null }));
