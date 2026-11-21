@@ -38,10 +38,14 @@ game skips straight to the fight for now.
 | Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
 | Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. An item holds level + 1. Echo Rune (rare) adds +1 multicast. |
 | Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. |
-| Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): multicast ×2, double price. Merging keeps it. |
+| Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): +1 multicast on top of its own, double price. Merging keeps it. Some items have built-in `multicast`. |
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
-| Run | 4 lives, 10 wins to clear, so at most 13 days. |
+| Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
+| Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
+| Max HP | `maxhp` stat: raises max HP and current HP (Heart Locket, Troll Blood, Giant's Belt). |
+| Triggers | `on: { event, scope, effects }`: an item reacts when your other items activate, apply Burn/Poison, gain Shield, Heal or deal damage. Triggered effects don't chain. |
+| Auras | `aura: { tag, stat, v, pct?, cond? }`: passive bonus to your other items of a tag, optionally only under a condition (e.g. enemy below half HP). |
 
 ## Opponents: the bot pool and matchmaking
 

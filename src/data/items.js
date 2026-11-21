@@ -15,11 +15,12 @@ export const TAG_NAME = {
 
 export const STAT_NAME = {
   damage: 'Damage', burn: 'Burn', poison: 'Poison', heal: 'Heal',
-  shield: 'Shield', regen: 'Regen', cleanse: 'Cleanse',
+  shield: 'Shield', regen: 'Regen', cleanse: 'Cleanse', maxhp: 'Max HP',
 };
 
 // Text for each stat when an item activates. V is the formatted value (with level progression).
 export const STAT_TEXT = {
+  maxhp:   V => `Gain ${V} max HP`,
   shield:  V => `Gain ${V} Shield`,
   heal:    V => `Heal ${V}`,
   regen:   V => `Gain ${V} Regen`,
@@ -28,7 +29,23 @@ export const STAT_TEXT = {
   burn:    V => `Apply ${V} Burn`,
   poison:  V => `Apply ${V} Poison`,
 };
-export const STAT_ORDER = ['shield', 'heal', 'regen', 'cleanse', 'damage', 'burn', 'poison'];
+export const STAT_ORDER = ['maxhp', 'shield', 'heal', 'regen', 'cleanse', 'damage', 'burn', 'poison'];
+
+// Triggers (`on`): an item reacts to your other items. scope 'adjacent' = only items touching it.
+// Triggered effects don't set off further triggers.
+export const ON_EVENT = {
+  activate: s => s.scope === 'adjacent' ? 'When an adjacent item activates' : 'When any of your other items activates',
+  burn: () => 'When you apply Burn', poison: () => 'When you apply Poison',
+  shield: () => 'When you gain Shield', heal: () => 'When you Heal', damage: () => 'When you deal weapon damage',
+};
+// Auras (`aura`): passive bonus to your other items with a tag, optionally only under a condition.
+export const AURA_COND = {
+  enemyBelowHalf: 'while the enemy is below half HP',
+  selfBelowHalf: 'while you are below half HP',
+  enemySlowed: 'while the enemy is slowed',
+  enemyBurning: 'while the enemy is burning',
+  selfShielded: 'while you have Shield',
+};
 
 // Special behaviours. `fmt` converts a raw value for display.
 export const SPECIALS = {
@@ -159,5 +176,49 @@ export const ITEMS = {
               start: { special: { kind: 'slow', v: [0.5, 0.55, 0.65, 0.75], dur: 5 } } },
   lens:     { name: 'Inferno Lens',  icon: '🔍', rarity: 'legendary', w: 1, h: 1, tags: ['fire', 'tool'],
               special: { kind: 'ignite', v: [1.3, 1.4, 1.55, 1.75] } },
+
+  // ---------- Max HP ----------
+  locket:   { name: 'Heart Locket',  icon: '💖', rarity: 'common', w: 1, h: 1, tags: ['heal'],
+              effects: { heal: [2, 3, 4, 6] }, start: { effects: { maxhp: [8, 12, 18, 26] } } },
+  trollblood:{ name: 'Troll Blood',  icon: '🩸', rarity: 'rare', w: 1, h: 1, tags: ['regen'],
+              effects: { maxhp: [3, 4, 6, 8] } },
+  belt:     { name: "Giant's Belt",  icon: '🎗️', rarity: 'epic', w: 2, h: 1, tags: ['shield'],
+              effects: { shield: [4, 6, 8, 11] }, start: { effects: { maxhp: [20, 30, 42, 60] } } },
+
+  // ---------- Triggers: react to your other items ----------
+  sparkplug:{ name: 'Spark Plug',    icon: '🔌', rarity: 'rare', w: 1, h: 1, tags: ['fire', 'tool'],
+              on: { event: 'activate', scope: 'adjacent', effects: { burn: [1, 1, 2, 3] } } },
+  leech:    { name: 'Leech Jar',     icon: '🪱', rarity: 'rare', w: 1, h: 1, tags: ['poison', 'heal'],
+              on: { event: 'poison', effects: { heal: [2, 3, 4, 6] } } },
+  thorns:   { name: 'Thorn Mail',    icon: '🌵', rarity: 'epic', w: 1, h: 2, tags: ['shield', 'weapon'],
+              effects: { shield: [5, 7, 10, 14] }, on: { event: 'shield', effects: { damage: [3, 4, 6, 8] } } },
+  cinderward:{ name: 'Cinder Ward',  icon: '🔶', rarity: 'epic', w: 1, h: 1, tags: ['fire', 'shield'],
+              on: { event: 'burn', effects: { shield: [2, 3, 4, 6] } } },
+  metronome:{ name: 'Metronome',     icon: '🎼', rarity: 'legendary', w: 1, h: 1, tags: ['time', 'weapon'],
+              on: { event: 'activate', effects: { damage: [2, 3, 4, 6] } } },
+
+  // ---------- Built-in multicast ----------
+  twinblades:{ name: 'Twin Blades',  icon: '✂️', rarity: 'common', w: 2, h: 1, tags: ['weapon'], multicast: 2,
+              effects: { damage: [4, 6, 9, 13] } },
+  crossbow: { name: 'Repeater Crossbow', icon: '🎯', rarity: 'rare', w: 1, h: 1, tags: ['weapon'], multicast: 3,
+              effects: { damage: [2, 3, 4, 6] } },
+  sparks:   { name: 'Ember Sparks',  icon: '✨', rarity: 'rare', w: 1, h: 1, tags: ['fire'], multicast: 3,
+              effects: { burn: [1, 1, 2, 2] } },
+  drip:     { name: 'Venom Drip',    icon: '💧', rarity: 'epic', w: 1, h: 1, tags: ['poison'], multicast: 3,
+              effects: { poison: [1, 1, 1, 2] } },
+
+  // ---------- Auras: boost your other items by type or condition ----------
+  standard: { name: 'Battle Standard', icon: '🏳️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+              aura: { tag: 'weapon', stat: 'damage', v: [2, 3, 4, 6] } },
+  coldsteel:{ name: 'Cold Steel',    icon: '🥶', rarity: 'rare', w: 1, h: 1, tags: ['weapon', 'time'],
+              effects: { damage: [3, 4, 6, 8] }, aura: { tag: 'weapon', stat: 'damage', v: [3, 4, 6, 8], cond: 'enemySlowed' } },
+  lastlight:{ name: 'Last Light',    icon: '🔦', rarity: 'rare', w: 1, h: 1, tags: ['heal'],
+              aura: { tag: 'heal', stat: 'heal', v: [3, 4, 6, 8], cond: 'selfBelowHalf' } },
+  brimstone:{ name: 'Brimstone Altar', icon: '🌋', rarity: 'epic', w: 1, h: 2, tags: ['fire'],
+              effects: { burn: [2, 3, 4, 5] }, aura: { tag: 'fire', stat: 'burn', v: [1, 1, 2, 3] } },
+  mask:     { name: 'Plague Mask',   icon: '🎭', rarity: 'epic', w: 1, h: 1, tags: ['poison'],
+              aura: { tag: 'poison', stat: 'poison', v: [1, 1, 1, 2] } },
+  headsman: { name: "Headsman's Seal", icon: '⚖️', rarity: 'legendary', w: 1, h: 1, tags: ['weapon', 'tool'],
+              aura: { tag: 'weapon', stat: 'damage', v: [0.5, 0.6, 0.8, 1], pct: true, cond: 'enemyBelowHalf' } },
 };
 

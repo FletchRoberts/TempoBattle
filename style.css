@@ -326,3 +326,16 @@ button { font: inherit; color: inherit; }
 .k-time { color: var(--c-time); } .k-slow { color: var(--c-slow); }
 .st.haste { color: var(--c-time); } .st.slow { color: var(--c-slow); }
 .f-slow { color: var(--c-slow); }
+
+/* ---------- Triggers, auras, Last Stand ---------- */
+.s-trigger b { color: var(--c-time); font-weight: 600; }
+.s-aura b { color: var(--c-mod); font-weight: 600; }
+.last-stand { max-width: 720px; }
+.last-stand h2 { font-size: 32px; text-transform: uppercase; letter-spacing: 0.06em; }
+.boons { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; text-align: left; }
+.boon { display: grid; gap: 4px; align-content: start; padding: 14px; background: var(--panel-2); border: 1px solid var(--line);
+  border-top: 3px solid var(--r-legendary); border-radius: 4px; cursor: pointer; }
+.boon:hover, .boon:focus-visible { border-color: var(--r-legendary); }
+.boon .b-ico { font-size: 28px; }
+.boon b { font-family: var(--f-display); font-size: 16px; }
+.boon span:last-child { color: var(--muted); font-size: 13px; }

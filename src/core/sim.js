@@ -89,8 +89,44 @@ export class Battle {
     for (const o of me.items) if (o !== inst && ITEMS[o.id].special?.kind === 'amplify' && adjacent(o, inst)) mult += ITEMS[o.id].special.v[o.level - 1];
     const st = statsOf(inst);
     for (const k in inst.bonus) st[k] = (st[k] || 0) + inst.bonus[k];
-    this.applyStats(i, st, mult);
+    // Auras from your other items: boost stats this item already has, by tag and condition.
+    for (const o of me.items) {
+      const a = ITEMS[o.id].aura;
+      if (!a || o === inst || !st[a.stat] || !tagsOf(inst).has(a.tag) || !this.condOk(i, a.cond)) continue;
+      const av = a.v[o.level - 1];
+      st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + av;
+    }
+    const events = this.applyStats(i, st, mult);
     if (sp) this.applySpecial(i, inst, sp, L, bar);
+    events.add('activate');
+    if (!this.depth) this.fireTriggers(i, inst, events);
+  }
+  condOk(i, cond) {
+    const me = this.f[i], foe = this.f[1 - i];
+    switch (cond) {
+      case undefined: return true;
+      case 'enemyBelowHalf': return foe.hp < foe.maxHp / 2;
+      case 'selfBelowHalf': return me.hp < me.maxHp / 2;
+      case 'enemySlowed': return foe.slowNow(this.t);
+      case 'enemyBurning': return foe.burn > 0;
+      case 'selfShielded': return me.shield > 0;
+      default: return false;
+    }
+  }
+  // Items with an `on` block react to what your other items just did. Triggered effects
+  // don't set off more triggers (depth guard), so chains can't loop.
+  fireTriggers(i, src, events) {
+    this.depth = (this.depth || 0) + 1;
+    for (const o of this.f[i].items) {
+      const on = ITEMS[o.id].on;
+      if (!on || o === src || !events.has(on.event) || (on.scope === 'adjacent' && !adjacent(o, src))) continue;
+      const L = o.level - 1, st = {};
+      for (const [k, arr] of Object.entries(on.effects || {})) st[k] = arr[L];
+      this.fx('activate', i, o);
+      this.applyStats(i, st, 1);
+      if (on.special) this.applySpecial(i, o, on.special, L, null);
+    }
+    this.depth--;
   }
   // Battle start: items with a `start` block fire it once, before any bar moves.
   battleStart(i) {
@@ -103,10 +139,12 @@ export class Battle {
       if (s0.special) this.applySpecial(i, inst, s0.special, L, null);
     }
   }
+  // Applies stats and returns which kinds of effect happened (for triggers).
   applyStats(i, st, mult) {
-    const me = this.f[i], foe = this.f[1 - i];
-    const val = k => Math.round((st[k] || 0) * mult);
+    const me = this.f[i], foe = this.f[1 - i], events = new Set();
+    const val = k => { const x = Math.round((st[k] || 0) * mult); if (x > 0) events.add(k); return x; };
     let v;
+    if ((v = val('maxhp')) > 0) { me.maxHp += v; me.hp += v; this.fx('float', i, `+${v} max`, 'heal'); }
     if ((v = val('shield')) > 0) { me.shield += v; this.fx('float', i, `+${v}`, 'shield'); }
     if ((v = val('heal')) > 0) {
       me.hp += Math.min(v, me.maxHp - me.hp); this.fx('float', i, `+${v}`, 'heal');
@@ -117,6 +155,7 @@ export class Battle {
     if ((v = val('damage')) > 0) this.hit(1 - i, v, 'damage');
     if ((v = val('burn')) > 0) { foe.burn += v; this.fx('float', 1 - i, `+${v} burn`, 'burn'); }
     if ((v = val('poison')) > 0) { foe.poison += v; this.fx('float', 1 - i, `+${v} poison`, 'poison'); }
+    return events;
   }
   applySpecial(i, inst, sp, L, bar) {
     const me = this.f[i], foe = this.f[1 - i], sv = sp.v[L];

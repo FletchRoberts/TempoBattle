@@ -1,8 +1,8 @@
 // Browser UI: shop, drag and drop, PvP battle playback. All rules come from src/core.
-import { RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
-  COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_MULTICAST,
+  COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
   def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, modSlots, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot,
 } from '../core/rules.js';
@@ -29,7 +29,7 @@ function newRun() {
   rng = makeRng(Date.now());
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
-    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false,
+    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false,
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
@@ -50,8 +50,15 @@ function advancePhase() {
 function nextDay(result) {
   S.history.push({ day: S.day, result, opponent: S.opponent.name, oppWr: S.opponent.wr });
   if (result === 'win') S.wins++;
-  if (result === 'loss') S.lives--;
-  if (S.lives <= 0 || S.wins >= WINS_TO_CLEAR) { S.over = true; S.phase = 'over'; return render(); }
+  if (result === 'loss') S.lives = Math.max(0, S.lives - lifeLoss(S.day));
+  if (S.wins >= WINS_TO_CLEAR) { S.phase = 'over'; return render(); }
+  if (S.lives <= 0) {
+    if (S.lastStandUsed) { S.phase = 'over'; return render(); }
+    S.phase = 'laststand'; S.boons = rng.shuffle([...BOONS]).slice(0, 3); return render();
+  }
+  advanceDay(result);
+}
+function advanceDay(result) {
   S.gold += income(S.day, result === 'win');
   S.day++; S.rerolls = 0; S.phase = 'shop';
   // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
@@ -66,11 +73,44 @@ function nextDay(result) {
   render();
 }
 
+const myMaxHp = () => maxHp(S.day) + (S.bonusHp || 0);
+
+// ===================== Last Stand =====================
+// The first time you run out of lives you pick one rare boon and keep going on 1 life.
+const BOONS = [
+  { id: 'legend', icon: '👑', name: 'Legend Reborn', text: 'Take a random Legendary item.',
+    apply() { const ids = Object.keys(ITEMS).filter(k => ITEMS[k].rarity === 'legendary'); S.bench.push(newInst(rng.pick(ids))); } },
+  { id: 'shine', icon: '✨', name: 'Polished', text: 'Your most valuable board item becomes shiny: +1 multicast.',
+    apply() { const best = [...S.board].sort((a, b) => priceOf(b) - priceOf(a))[0]; if (best) best.multicast += SHINY_BONUS; } },
+  { id: 'vigor', icon: '❤️', name: 'Second Wind', text: '+25 max HP for the rest of the run.', apply() { S.bonusHp += 25; } },
+  { id: 'hoard', icon: '💰', name: 'Hidden Hoard', text: 'Gain 30 gold.', apply() { S.gold += 30; } },
+  { id: 'mastery', icon: '⬆️', name: 'Mastery', text: 'Your best item below level III goes up one level.',
+    apply() { const it = [...S.board, ...S.bench].filter(o => o.level < 3).sort((a, b) => b.level - a.level || priceOf(b) - priceOf(a))[0]; if (it) it.level++; } },
+  { id: 'arcana', icon: '🔮', name: 'Arcana', text: 'Take an Echo Rune and two Wild Essences.',
+    apply() { S.consumables.push({ kind: 'mod', id: 'echoRune' }, { kind: 'essence' }, { kind: 'essence' }); } },
+];
+function renderLastStand() {
+  const v = $('#view'); v.className = 'over'; v.innerHTML = '';
+  const card = el('section', 'panel over-card last-stand');
+  card.innerHTML = `<p class="eyebrow">Out of lives</p><h2>Last Stand</h2>
+    <p class="muted">Pick one boon. You fight on with 1 life, and the next loss ends the run. This happens once per run.</p>`;
+  const row = el('div', 'boons');
+  for (const b of S.boons) {
+    const btn = el('button', 'boon', `<span class="b-ico">${b.icon}</span><b>${b.name}</b><span>${b.text}</span>`);
+    btn.type = 'button';
+    btn.onclick = () => { b.apply(); S.lastStandUsed = true; S.lives = 1; toast(`${b.name}: ${b.text}`); advanceDay('loss'); };
+    row.append(btn);
+  }
+  card.append(row);
+  v.append(card);
+  row.querySelector('button').focus();
+}
+
 // ===================== Item text =====================
 function prog(arr, L, fmt = v => v) {
   return arr.map((v, i) => `<span class="${i === L ? 'cur' : 'lv'}">${fmt(v)}</span>`).join('<span class="sep">›</span>');
 }
-function describe(inst) {
+export function describe(inst) {
   const d = def(inst), L = inst.level - 1, lines = [];
   for (const k of STAT_ORDER) if (d.effects?.[k]) lines.push(`<li class="s-${k}">${STAT_TEXT[k](prog(d.effects[k], L))}</li>`);
   if (d.special) { const SP = SPECIALS[d.special.kind]; lines.push(`<li class="s-special">${SP.text(d.special, prog(d.special.v, L, SP.fmt))}</li>`); }
@@ -81,11 +121,22 @@ function describe(inst) {
     if (d.start.special) { const SP = SPECIALS[d.start.special.kind]; parts.push(SP.text(d.start.special, prog(d.start.special.v, L, SP.fmt)).replace(/\. Triggering again refreshes it$/, '')); }
     lines.unshift(`<li class="s-start"><b>Battle start:</b> ${parts.join('. ')}</li>`);
   }
+  if (d.on) {
+    const parts = Object.entries(d.on.effects || {}).map(([k, arr]) => STAT_TEXT[k](prog(arr, L)).replace(/^./, c => c.toLowerCase()));
+    lines.push(`<li class="s-trigger"><b>${ON_EVENT[d.on.event](d.on)}:</b> ${parts.join(', ')}</li>`);
+  }
+  if (d.aura) {
+    const a = d.aura, V = prog(a.v, L, a.pct ? x => Math.round(x * 100) + '%' : x => x);
+    lines.push(`<li class="s-aura"><b>Passive:</b> your other ${TAG_NAME[a.tag]} items get +${V} ${STAT_NAME[a.stat]}${a.cond ? ' ' + AURA_COND[a.cond] : ''}</li>`);
+  }
   for (const id of inst.mods || []) {
     const m = MODIFIERS[id];
     lines.push(`<li class="s-${m.stat || 'multicast'} modded">${m.icon} ${m.name}: ${m.stat ? `+<span class="cur">${m.v}</span> ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</li>`);
   }
-  if (inst.multicast > 1) lines.push(`<li class="s-multicast">Multicast <span class="cur">×${inst.multicast}</span>: fires ${inst.multicast} times each time the bar hits it</li>`);
+  if (inst.multicast > 1) {
+    const src = [(d.multicast || 1) > 1 && 'built in', isShiny(inst) && 'shiny'].filter(Boolean).join(' + ');
+    lines.push(`<li class="s-multicast">Multicast <span class="cur">×${inst.multicast}</span>${src ? ` (${src})` : ''}: fires ${inst.multicast} times each time the bar hits it</li>`);
+  }
   return lines.join('');
 }
 
@@ -133,7 +184,7 @@ function timeline(items, opts = {}) {
 }
 
 function renderHud() {
-  const hearts = Array.from({ length: START_LIVES }, (_, i) => `<i class="${i < S.lives ? 'on' : ''}">♥</i>`).join('');
+  const lives = `<span class="hearts"><i class="on">♥</i></span> ${S.lives}<small>/${START_LIVES}</small>`;
   const flowName = { shop: 'Shop', encounter: 'Encounter', pvp: 'PvP fight' };
   const flow = S.phase === 'over' ? '' : DAY_FLOW.map(p => {
     const soon = p === 'encounter' && !ENCOUNTERS.some(e => e.enabled);
@@ -145,8 +196,8 @@ function renderHud() {
     <dl class="stats">
       <div><dt>Day</dt><dd>${S.day}</dd></div>
       <div><dt>Wins</dt><dd>${S.wins}<small>/${WINS_TO_CLEAR}</small></dd></div>
-      <div><dt>Lives</dt><dd class="hearts">${hearts}</dd></div>
-      <div><dt>Max HP</dt><dd>${maxHp(S.day)}</dd></div>
+      <div title="Lives lost on a defeat today"><dt>Lives · loss −${lifeLoss(S.day)}</dt><dd>${lives}</dd></div>
+      <div><dt>Max HP</dt><dd>${myMaxHp()}</dd></div>
       <div class="gold"><dt>Gold</dt><dd>${S.gold}</dd></div>
     </dl>
     <div class="hud-btns"><button type="button" class="btn ghost sm" id="help-btn">How to play</button>
@@ -195,11 +246,11 @@ function showHelp() {
       <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
       <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
-      <li><b>Shiny items.</b> Rarely an item rolls shiny. It multicasts: it fires ${SHINY_MULTICAST} times every time the bar hits it. Merging keeps the shine.</li>
+      <li><b>Shiny items.</b> Rarely an item rolls shiny: +${SHINY_BONUS} multicast, so it fires an extra time every time the bar hits it. Some items multicast on their own. Merging keeps the shine.</li>
       <li><b>Modify.</b> Buy a modifier (like +3 Damage), click it below your bench, then click an item. Items hold level + 1 modifiers.</li>
       <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
-      <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before you lose ${START_LIVES} lives.</li>
+      <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before your ${START_LIVES} lives run out. A loss costs ${lifeLoss(1)} life on Days 1–3, ${lifeLoss(4)} on Days 4–7 and ${lifeLoss(8)} after that. The first time you run out, you get a Last Stand: pick a rare boon and fight on with 1 life.</li>
     </ol>
     <h3>Effects</h3>
     <ul class="effects-key">
@@ -230,6 +281,7 @@ function render() {
   if (S.phase === 'shop') renderShop();
   else if (S.phase === 'encounter') renderEncounter();
   else if (S.phase === 'pvp') renderBattle();
+  else if (S.phase === 'laststand') renderLastStand();
   else renderOver();
 }
 
@@ -536,7 +588,7 @@ function startBattle() {
   S.opponent = opp; S.faced.add(opp.id);
   S.mySnapshot = snapshot(S.board);
   const hp = maxHp(S.day);
-  S.battle = new Battle(new Fighter('You', S.board, hp), new Fighter(opp.name, fromSnapshot(opp.items), hp), onFx);
+  S.battle = new Battle(new Fighter('You', S.board, myMaxHp()), new Fighter(opp.name, fromSnapshot(opp.items), hp), onFx);
   S.selected = null; S.pending = null;
   S.phase = 'pvp'; render();
 }
@@ -634,11 +686,15 @@ function showResult(res) {
   if (S.phase !== 'pvp' || $('.modal')) return;
   const gain = income(S.day, res === 'win');
   const title = { win: 'Victory', loss: 'Defeat', draw: 'Draw' }[res];
-  const sub = { win: 'You win the day.', loss: 'You lose a life.', draw: 'Both fell. Nobody scores.' }[res];
+  const cost = lifeLoss(S.day);
+  const last = res === 'loss' && S.lives - cost <= 0;
+  const sub = { win: 'You win the day.', draw: 'Both fell. Nobody scores.',
+    loss: last ? (S.lastStandUsed ? 'That was your last life.' : `You lose ${cost} ${cost > 1 ? 'lives' : 'life'} and you're out. Time for a Last Stand.`)
+               : `You lose ${cost} ${cost > 1 ? 'lives' : 'life'}.` }[res];
   const m = el('div', 'modal');
   m.innerHTML = `<div class="modal-card ${res}"><h2>${title}</h2><p>${sub}</p>
     <p class="rating">Rating your board against Day ${S.day}'s field…</p>
-    <p class="income">+${gain} gold next shop</p>
+    ${last && S.lastStandUsed ? '' : `<p class="income">+${gain} gold next shop</p>`}
     <button type="button" class="btn fight" id="cont">Continue <span>→</span></button></div>`;
   document.body.append(m);
   const cont = $('#cont', m);

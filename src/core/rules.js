@@ -2,11 +2,14 @@
 import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE } from '../data/items.js';
 
 export const COLS = 10, ROWS = 3;
-export const BENCH_MAX = 8, START_LIVES = 4, WINS_TO_CLEAR = 10, START_GOLD = 12;
-export const MAX_DAYS = START_LIVES + WINS_TO_CLEAR - 1; // longest possible run
+export const BENCH_MAX = 8, START_LIVES = 10, WINS_TO_CLEAR = 10, START_GOLD = 12;
+// Losing costs more lives as the run goes on.
+export const lifeLoss = day => (day <= 3 ? 1 : day <= 7 ? 2 : 3);
+// Longest possible run (cheapest losses first, plus one Last Stand life), used for the bot pool.
+export const MAX_DAYS = 17;
 export const SHOP_ITEMS = 5;
-// Shiny items roll in the shop now and then: they multicast (fire extra times per bar hit).
-export const SHINY_MULTICAST = 2;
+// Shiny items roll in the shop now and then: +1 multicast on top of the item's own.
+export const SHINY_BONUS = 1;
 export const shinyChance = day => Math.min(0.08, 0.02 + day * 0.005);
 export const SHINY_PRICE_MULT = 2;
 // Augments are rare: pre-infused shop items and the occasional Wild Essence (random infusion).
@@ -98,7 +101,7 @@ export function rollShop(day, rng) {
   for (let i = 0; i < SHOP_ITEMS; i++) {
     const level = day > 3 && rng.chance(Math.min(0.35, (day - 3) * 0.06)) ? 2 : 1;
     const inst = newInst(rollItemId(day, rng), level);
-    if (rng.chance(shinyChance(day))) inst.multicast = Math.max(inst.multicast, SHINY_MULTICAST);
+    if (rng.chance(shinyChance(day))) inst.multicast += SHINY_BONUS;
     if (rng.chance(PREINFUSED_CHANCE)) inst.infusion = rollInfusion(rng);
     offers.push({ kind: 'item', inst, price: priceOf(inst), sold: false });
   }
