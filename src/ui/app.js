@@ -3,7 +3,7 @@ import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME,
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
@@ -142,8 +142,8 @@ const BOONS = [
     apply() { const best = [...S.board].sort((a, b) => priceOf(b) - priceOf(a))[0]; if (best) best.multicast += SHINY_BONUS; } },
   { id: 'vigor', icon: '❤️', name: 'Second Wind', text: '+25 max HP for the rest of the run.', apply() { S.bonusHp += 25; } },
   { id: 'hoard', icon: '💰', name: 'Hidden Hoard', text: 'Gain 30 gold.', apply() { S.gold += 30; } },
-  { id: 'mastery', icon: '⬆️', name: 'Mastery', text: 'Your best item below level III goes up one level.',
-    apply() { const it = [...S.board, ...S.bench].filter(o => o.level < 3).sort((a, b) => b.level - a.level || priceOf(b) - priceOf(a))[0]; if (it) it.level++; } },
+  { id: 'mastery', icon: '⬆️', name: 'Mastery', text: 'Your best item below Super Rare goes up one rarity tier.',
+    apply() { const it = [...S.board, ...S.bench].filter(o => o.level < maxLevel(o) && tierIndex(o) < 3).sort((a, b) => priceOf(b) - priceOf(a))[0]; if (it) it.level++; } },
   { id: 'relic', icon: '🏆', name: 'Relic Hunter', text: 'Choose an artifact right away.', apply() { S.artifactPicks++; } },
   { id: 'arcana', icon: '🔮', name: 'Arcana', text: 'Take an Echo Rune and two Wild Essences.',
     apply() { S.consumables.push({ kind: 'mod', id: 'echoRune' }, { kind: 'essence' }, { kind: 'essence' }); } },
@@ -166,14 +166,20 @@ function renderLastStand() {
 }
 
 // ===================== Item text =====================
+// Values per level. While describing an item, each value is colored by the rarity tier it belongs to.
+let progBase = null;
 function prog(arr, L, fmt = v => v) {
-  return arr.map((v, i) => `<span class="${i === L ? 'cur' : 'lv'}">${fmt(v)}</span>`).join('<span class="sep">›</span>');
+  return arr.map((v, i) => `<span class="${i === L ? 'cur' : 'lv'}${progBase != null ? ` tc-${RARITIES[progBase + i]}` : ''}">${fmt(v)}</span>`).join('<span class="sep">›</span>');
 }
 export function describe(inst) {
+  progBase = baseTier(inst.id);
+  try { return describeLines(inst); } finally { progBase = null; }
+}
+function describeLines(inst) {
   const d = def(inst), L = inst.level - 1, lines = [];
   for (const k of STAT_ORDER) if (d.effects?.[k]) lines.push(`<li class="s-${k}">${STAT_TEXT[k](prog(d.effects[k], L))}</li>`);
   if (d.special) { const SP = SPECIALS[d.special.kind]; lines.push(`<li class="s-special">${SP.text(d.special, prog(d.special.v, L, SP.fmt))}</li>`); }
-  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](prog(f.v, L))}</li>`); }
+  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](prog(f.v.slice(progBase), L))}</li>`); }
   if (d.start) {
     const parts = [];
     for (const k of STAT_ORDER) if (d.start.effects?.[k]) parts.push(STAT_TEXT[k](prog(d.start.effects[k], L)));
@@ -222,17 +228,17 @@ function setCell() {
 
 function itemEl(inst, scale = 'cell') {
   const d = def(inst);
-  const e = el('div', `item r-${d.rarity} t-${d.tags[0]}${isShiny(inst) ? ' shiny' : ''}`);
+  const e = el('div', `item r-${tierOf(inst)} t-${d.tags[0]}${isShiny(inst) ? ' shiny' : ''}`);
   e.dataset.uid = inst.uid;
   e.style.width = `calc(var(--${scale}) * ${inst.w})`;
   e.style.height = `calc(var(--${scale}) * ${inst.h})`;
   if (inst.x >= 0 && scale === 'cell') { e.style.left = `calc(var(--cell) * ${inst.x})`; e.style.top = `calc(var(--cell) * ${inst.y})`; }
-  const pips = [0, 1, 2, 3].map(i => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('');
+  const pips = maxLevel(inst) > 1 ? Array.from({ length: maxLevel(inst) }, (_, i) => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('') : '';
   e.innerHTML = `<span class="ico">${d.icon}</span><span class="pips">${pips}</span>` +
     (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') +
     `<span class="badges">${inst.multicast > 1 ? `<i class="mc">×${inst.multicast}</i>` : ''}${inst.mods?.length ? `<i class="modc" title="Modifiers">+${inst.mods.length}</i>` : ''}</span>` +
     `<span class="flash"></span>`;
-  e.title = `${d.name} ${LV[inst.level - 1]}`;
+  e.title = `${d.name} (${RARITY[tierOf(inst)].name})`;
   return e;
 }
 
@@ -315,7 +321,7 @@ function showHelp() {
       <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity (Common, Uncommon, Rare, Super Rare, Legendary): all Common at rank 1, better items later. Now and then an item is half price, and sometimes a Guild Charter (+1 shop rank) or Coupon (cheaper items today) shows up.</li>
       <li><b>Place it.</b> Click it to pick it up, then click a spot on the 3 × 10 grid (or drag it). Dropping it on another item swaps them. R or the Rotate button turns it; Esc puts it back.</li>
       <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
-      <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
+      <li><b>Upgrade by merging.</b> Drop an item on an identical one of the same rarity, on the board or bench, to make one item a rarity tier higher: Common → Uncommon → Rare → Super Rare → Legendary. Legendaries are already at the top and can't be upgraded. Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
       <li><b>Shiny items.</b> Rarely an item rolls shiny: +${SHINY_BONUS} multicast, so it fires an extra time every time the bar hits it. Some items multicast on their own. Merging keeps the shine.</li>
       <li><b>Modify.</b> Buy a modifier (like +3 Damage), click it below your bench, then click an item. Stack as many as you like.</li>
@@ -379,9 +385,9 @@ function renderShop() {
     c.type = 'button';
     if (o.kind === 'item') {
       const d = def(o.inst);
-      c.classList.add('r-' + d.rarity);
+      c.classList.add('r-' + tierOf(o.inst));
       if (isShiny(o.inst)) c.classList.add('shiny');
-      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-meta"><b class="rar">${RARITY[d.rarity].name}</b> ${LV[o.inst.level - 1]}` +
+      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-meta"><b class="rar">${RARITY[tierOf(o.inst)].name}</b>${o.inst.level > 1 ? ' <span class="upg">upgraded</span>' : ''}` +
         `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}` +
         `${o.inst.infusion ? ` <b class="inf-tag" title="${INFUSIONS[o.inst.infusion].name}">${INFUSIONS[o.inst.infusion].icon} Infused</b>` : ''}</span>`;
       const shape = el('span', 'shape');
@@ -525,15 +531,16 @@ function showInspector(target) {
   let actions = '', mergeHint = '';
   if (target.from === 'owned') {
     const twins = [...S.board, ...S.bench].filter(o => canMerge(o, inst)).length;
-    const up = inst.level >= 4 ? `<span class="chip">Max level</span>` : '';
-    mergeHint = inst.level >= 4 ? '' : `<p class="merge-hint">${twins
-      ? `You own another ${d.name} ${LV[inst.level - 1]}. Drag one onto the other to make it ${LV[inst.level]}.`
-      : `Merge with another ${d.name} ${LV[inst.level - 1]} to reach ${LV[inst.level]}.`}</p>`;
+    const top = inst.level >= maxLevel(inst), cur = RARITY[tierOf(inst)].name, next = RARITY[RARITIES[tierIndex(inst) + 1]]?.name;
+    const up = top ? `<span class="chip">${tierOf(inst) === 'legendary' ? 'Legendary: top tier' : 'Max tier'}</span>` : '';
+    mergeHint = top ? '' : `<p class="merge-hint">${twins
+      ? `You own another ${cur} ${d.name}. Drop one onto the other to make it ${next}.`
+      : `Merge with another ${cur} ${d.name} to upgrade it to ${next}.`}</p>`;
     const rot = inst.w !== inst.h ? `<button type="button" class="btn ghost" id="btn-rot">Rotate</button>` : '';
     actions = `<div class="ins-actions">${up}${rot}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
   }
-  p.innerHTML = `<div class="ins-h r-${d.rarity}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name} <small>${LV[inst.level - 1]}</small></h3>
-    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span>${inst.mods?.length ? `<span class="chip">Mods ${inst.mods.length}</span>` : ''}${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
+  p.innerHTML = `<div class="ins-h r-${tierOf(inst)}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name}</h3>
+    <span class="chip rar">${RARITY[tierOf(inst)].name}</span>${inst.level > 1 ? `<span class="chip">from ${RARITY[d.rarity].name}</span>` : ''}<span class="chip">${inst.w}×${inst.h}</span>${inst.mods?.length ? `<span class="chip">Mods ${inst.mods.length}</span>` : ''}${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
     <div class="tags">${tags}</div><ul class="effects">${describe(inst) || '<li class="muted">No active effect.</li>'}</ul>${mergeHint}${actions}`;
   const sl = $('#btn-sell', p);
   if (sl) sl.onclick = () => sellInst(inst);
@@ -548,7 +555,7 @@ function buy(idx) {
   const o = S.shop[idx], price = offerPrice(o, S.coupon); if (o.sold || S.gold < price) return;
   if (o.kind === 'item') {
     if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
-    S.bench.push(o.inst);
+    S.bench.push({ ...o.inst, mods: [...(o.inst.mods || [])] }); // a copy, so later merges don't change the sold card
   } else if (o.kind === 'token') {
     const t = SHOP_TOKENS[o.id];
     if (t.rank) S.rankBonus += t.rank;
@@ -715,7 +722,7 @@ function finishDrop() {
   }
   if (drop.kind === 'merge') {
     remove(); mergeInto(drop.target, inst);
-    S.selected = drop.target.uid; toast(`${def(inst).name} merged to level ${LV[drop.target.level - 1]}`);
+    S.selected = drop.target.uid; toast(`${def(inst).name} upgraded to ${RARITY[tierOf(drop.target)].name}`);
     return render();
   }
   remove(); Object.assign(inst, { x: drop.x, y: drop.y, w: d.w, h: d.h }); S.board.push(inst);

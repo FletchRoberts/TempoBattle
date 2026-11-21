@@ -5,7 +5,7 @@
 //                it's rarely offered.
 //   impact     = ablation. Take real boards that contain the item, remove that one copy, re-fight
 //                the same opponents. The drop in win rate is what the item contributes.
-//   value/gold = impact / gold cost (rarity price × level), relative to the average item on the same
+//   value/gold = impact / gold cost (price of the item's current rarity tier), relative to the average item on the same
 //                day (1.0 = average), so early-game and late-game items compare fairly.
 //
 // Suggestions move outliers toward their rarity tier's MEDIAN value per gold, never above it,
@@ -47,7 +47,7 @@ export function itemImpact(pool, { samples = 24, opps = 10, seed = 1, onProgress
     raw[id] = rng.shuffle([...occ[id]]).slice(0, samples).map(({ d, t, idx }) => {
       const delta = base(t, d) - rate(t, t.items.filter((_, j) => j !== idx), d);
       const it = t.items[idx];
-      return { d, delta, gold: RARITY[ITEMS[id].rarity].price * it[1], cells: it[4] * it[5] };
+      return { d, delta, gold: RARITY[RARITIES[Math.min(4, RARITIES.indexOf(ITEMS[id].rarity) + it[1] - 1)]].price, cells: it[4] * it[5] };
     });
     onProgress(n + 1, ids.length);
   });

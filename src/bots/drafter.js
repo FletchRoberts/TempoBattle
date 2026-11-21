@@ -6,7 +6,7 @@ import { makeRng } from '../core/rng.js';
 import {
   START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rerollCost,
   canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
-  afterFightGold, shopRank, offerPrice,
+  afterFightGold, shopRank, offerPrice, tierOf,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 import { tel, telShop } from '../balance/telemetry.js';
@@ -48,7 +48,7 @@ export function itemValue(inst, board, arch) {
   const d = def(inst);
   let aff = 0;
   for (const t of tagsOf(inst)) aff = Math.max(aff, arch.tags[t] ?? 0.3);
-  let v = (POWER[d.rarity] * (1 + 0.6 * (inst.level - 1)) * aff + 0.4 * (inst.mods?.length || 0)) * (inst.multicast || 1);
+  let v = (POWER[tierOf(inst)] * aff + 0.4 * (inst.mods?.length || 0)) * (inst.multicast || 1);
   const sp = d.special, others = board.filter(o => o !== inst);
   if (sp?.kind === 'buffAdj' || sp?.kind === 'buffAll') {
     const n = others.filter(o => tagsOf(o).has(sp.tag)).length;

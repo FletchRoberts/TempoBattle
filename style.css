@@ -389,3 +389,13 @@ button { font: inherit; color: inherit; }
 .offer.token { border-top-color: var(--c-time); }
 .offer.token .o-meta { color: var(--c-time); }
 .drop-preview.swap { background: rgba(111, 215, 255, 0.18); outline: 2px dashed var(--echo); }
+
+/* ---------- Per-tier value colors ---------- */
+.effects .tc-common.cur { color: var(--r-common); } .effects .tc-uncommon.cur { color: var(--r-uncommon); }
+.effects .tc-rare.cur { color: var(--r-rare); } .effects .tc-superrare.cur { color: var(--r-superrare); }
+.effects .tc-legendary.cur { color: var(--r-legendary); }
+.effects .lv.tc-uncommon { color: color-mix(in srgb, var(--r-uncommon) 55%, var(--muted)); }
+.effects .lv.tc-rare { color: color-mix(in srgb, var(--r-rare) 55%, var(--muted)); }
+.effects .lv.tc-superrare { color: color-mix(in srgb, var(--r-superrare) 55%, var(--muted)); }
+.effects .lv.tc-legendary { color: color-mix(in srgb, var(--r-legendary) 55%, var(--muted)); }
+.upg { color: var(--accent); font-weight: 600; }

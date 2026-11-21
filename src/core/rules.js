@@ -17,7 +17,15 @@ export const SHINY_PRICE_MULT = 2;
 export const PREINFUSED_CHANCE = 0.08, PREINFUSED_SURCHARGE = 3;
 export const WILD_ESSENCE_CHANCE = 0.2;
 export const modOffers = day => (day >= 3 ? 2 : 1);   // modifier offers per shop
-export const LV = ['I', 'II', 'III', 'IV'];
+export const LV = ['I', 'II', 'III', 'IV']; // artifact levels
+
+// Rarity tiers. An item's level is how many tiers it has climbed from its starting rarity:
+// a Common at level 3 is Rare. Legendary is the top, so Legendaries can't be upgraded.
+export const RARITIES = ['common', 'uncommon', 'rare', 'superrare', 'legendary'];
+export const baseTier = id => RARITIES.indexOf(ITEMS[id].rarity);
+export const maxLevel = inst => RARITIES.length - baseTier(inst.id);
+export const tierIndex = inst => Math.min(RARITIES.length - 1, baseTier(inst.id) + inst.level - 1);
+export const tierOf = inst => RARITIES[tierIndex(inst)];
 
 // What happens on each day, in order. 'encounter' is a placeholder slot for events / PvE.
 export const DAY_FLOW = ['shop', 'encounter', 'pvp'];
@@ -36,11 +44,11 @@ export function newInst(id, level = 1) {
   return { uid: uid(), id, level, infusion: null, mods: [], multicast: d.multicast || 1, w: d.w, h: d.h, x: -1, y: -1 };
 }
 export const isShiny = inst => inst.multicast > (def(inst).multicast || 1);
-export const priceOf = inst => RARITY[def(inst).rarity].price * inst.level * (isShiny(inst) ? SHINY_PRICE_MULT : 1)
+export const priceOf = inst => RARITY[tierOf(inst)].price * (isShiny(inst) ? SHINY_PRICE_MULT : 1)
   + (inst.infusion ? PREINFUSED_SURCHARGE : 0);
 export const sellValue = inst => Math.max(1, Math.floor(priceOf(inst) / 2));
-// Levels only go up by merging: two copies of the same item at the same level make one at the next.
-export const canMerge = (a, b) => a !== b && a.id === b.id && a.level === b.level && a.level < 4;
+// Upgrading = merging: two copies of the same item at the same tier make one item a tier higher.
+export const canMerge = (a, b) => a !== b && a.id === b.id && a.level === b.level && a.level < maxLevel(a);
 export function mergeInto(target, src) {
   target.level++;
   target.multicast = Math.max(target.multicast, src.multicast); // shiny survives the merge
@@ -111,7 +119,6 @@ export function afterFightGold({ board, artifacts = {}, day, won, gold = 0, batt
 // ---------- Shop rank ----------
 // Rank = day + Guild Charters bought. Each rank has fixed rarity odds (percent): all Common at
 // rank 1, shifting up until it caps at RANK_ODDS' last row.
-export const RARITIES = ['common', 'uncommon', 'rare', 'superrare', 'legendary'];
 export const RANK_ODDS = [
   // common uncommon rare superrare legendary
   [100, 0, 0, 0, 0],   // rank 1
@@ -147,15 +154,20 @@ export function rollRarity(rank, rng) {
   for (const [k, v] of Object.entries(w)) if ((t -= v) < 0) return k;
   return 'common';
 }
-export function rollItemId(rank, rng) {
-  const r = rollRarity(rank, rng);
-  return rng.pick(Object.keys(ITEMS).filter(k => ITEMS[k].rarity === r));
+// Roll an offer at a tier: usually an item that starts at that tier, sometimes an upgraded
+// lower-tier item already at that tier.
+export const UPGRADED_OFFER_CHANCE = 0.25;
+export function rollOffer(rank, rng) {
+  const r = RARITIES.indexOf(rollRarity(rank, rng));
+  const native = Object.keys(ITEMS).filter(k => baseTier(k) === r);
+  const lower = Object.keys(ITEMS).filter(k => baseTier(k) < r);
+  const id = (lower.length && (rng.chance(UPGRADED_OFFER_CHANCE) || !native.length)) ? rng.pick(lower) : rng.pick(native);
+  return newInst(id, r - baseTier(id) + 1);
 }
 export function rollShop(day, rng, rank = day) {
   const offers = [];
   for (let i = 0; i < SHOP_ITEMS; i++) {
-    const level = rank > 3 && rng.chance(Math.min(0.35, (rank - 3) * 0.06)) ? 2 : 1;
-    const inst = newInst(rollItemId(rank, rng), level);
+    const inst = rollOffer(rank, rng);
     if (rng.chance(shinyChance(day))) inst.multicast += SHINY_BONUS;
     if (rng.chance(PREINFUSED_CHANCE)) inst.infusion = rollInfusion(rng);
     offers.push({ kind: 'item', inst, price: priceOf(inst), sale: rng.chance(SALE_CHANCE), sold: false });
@@ -173,7 +185,7 @@ export function rollShop(day, rng, rank = day) {
 export function statsOf(inst) {
   const d = def(inst), L = inst.level - 1, out = {};
   for (const [k, arr] of Object.entries(d.effects || {})) out[k] = (out[k] || 0) + arr[L];
-  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + f.v[L]; }
+  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + f.v[tierIndex(inst)]; }
   for (const id of inst.mods || []) { const m = MODIFIERS[id]; if (m.stat) out[m.stat] = (out[m.stat] || 0) + m.v; }
   return out;
 }
@@ -215,4 +227,5 @@ export function freeSpots(board, w, h) {
 export const snapshot = board => board.map(o =>
   [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0, o.multicast || 1, o.mods?.length ? o.mods : 0]);
 export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf, mc, mods]) =>
-  ({ uid: uid(), id, level, x, y, w, h, infusion: inf || null, multicast: mc || ITEMS[id].multicast || 1, mods: mods || [] }));
+  ({ uid: uid(), id, level: Math.min(level, RARITIES.length - baseTier(id)), x, y, w, h, infusion: inf || null,
+     multicast: mc || ITEMS[id].multicast || 1, mods: mods || [] }));

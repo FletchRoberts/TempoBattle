@@ -34,7 +34,7 @@ game skips straight to the fight for now.
 | Haste / Slow | Haste speeds up your bar, Slow slows the enemy's, for a few seconds. The same item refreshes instead of stacking. Speed stays between ×0.3 and ×4. |
 | Battle start | Items with a `start` block fire it once when the fight begins (e.g. Ward Totem's Shield, Smoke Bomb's Slow). |
 | Storm | After 30s both sides take a weapon-like hit every 0.5s (the Burn tick); Shield absorbs it first. It starts at 2 and each hit is 25% bigger (`OVERTIME`, `STORM_BASE`, `STORM_GROWTH`). Hard draw at 120s. |
-| Levels | I–IV. The only way up is merging: two identical items of the same level make one item a level higher. |
+
 | Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
 | Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. No limit per item. Echo Rune (rare) adds +1 multicast (up to ×4). |
 | Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. |
@@ -42,7 +42,8 @@ game skips straight to the fight for now.
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
 | Start | Empty board, 12 gold. Buy your first items on Day 1. |
-| Rarity | Five tiers: Common (3g), Uncommon (5g), Rare (7g), Super Rare (10g), Legendary (15g). Price × level. |
+| Rarity | Five tiers: Common (3g), Uncommon (5g), Rare (7g), Super Rare (10g), Legendary (15g). An item's price and look follow its current tier. |
+| Upgrading | Merging two copies of the same item at the same tier makes it one tier higher. Items start at their own rarity and can climb to Legendary; Legendaries can't be upgraded. Each item lists one value per reachable tier. |
 | Shop rank | Rank = day + Guild Charters bought. Rarity odds per rank in `RANK_ODDS`: 100% Common at rank 1, capping at 8/20/32/25/15 from rank 10. |
 | Sales | 8% of item offers are half price (`SALE_CHANCE`). |
 | Shop tokens | Like essences, occasional shop offers that act when bought (`SHOP_TOKENS`): Guild Charter (+1 shop rank for the run, 12% of shops), Coupon (−2g on item offers for the day, 15%). |
