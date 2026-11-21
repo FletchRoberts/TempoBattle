@@ -13,7 +13,7 @@
 import { ITEMS, RARITY } from '../data/items.js';
 import { ARTIFACTS } from '../data/artifacts.js';
 import { maxHp, fromSnapshot, RARITIES } from '../core/rules.js';
-import { duel } from '../core/sim.js';
+import { duel, Battle, Fighter, OVERTIME } from '../core/sim.js';
 import { makeRng } from '../core/rng.js';
 import { goldPerFight } from '../bots/drafter.js';
 import { newInst } from '../core/rules.js';
@@ -149,6 +149,24 @@ export function analyze(pool, telemetry, impact) {
     return { id, name: a.name, offered: off, picked: got, pickRate: off ? got / off : NaN };
   });
   return { generated: new Date().toISOString(), teams: teams.length, rows, tiers, powerIndex: overall, diversity, artifacts };
+}
+
+// How long fights last on each day: median and spread, and how often they reach the storm.
+export function fightLengths(pool, { pairs = 40, seed = 5 } = {}) {
+  const rng = makeRng(seed), out = {};
+  for (const [day, teams] of Object.entries(pool.days)) {
+    const ts = [];
+    for (let k = 0; k < pairs; k++) {
+      const a = rng.pick(teams), b = rng.pick(teams); if (a === b) continue;
+      const B = new Battle(new Fighter('a', fromSnapshot(a.items), maxHp(+day), a.artifacts || {}), new Fighter('b', fromSnapshot(b.items), maxHp(+day), b.artifacts || {}));
+      while (!B.done) B.step();
+      ts.push(B.t);
+    }
+    ts.sort((x, y) => x - y);
+    out[day] = { median: ts[ts.length >> 1], p10: ts[Math.floor(ts.length * 0.1)], p90: ts[Math.floor(ts.length * 0.9)],
+      storm: ts.filter(t => t > OVERTIME).length / ts.length, hp: maxHp(+day) };
+  }
+  return out;
 }
 
 // Compare two reports (e.g. after a change against the saved baseline).

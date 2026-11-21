@@ -5,10 +5,12 @@ import { artifactEffects } from '../data/artifacts.js';
 import { COLS, def, statsOf, tagsOf, adjacent, inScope, uid, isActive, chargeCost, perFireScale, scaledBonus } from './rules.js';
 
 export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 1.25s)
-export const MAX_CHARGE_CHAIN = 3; // charge-givers can set off other items at most this deep in one go
+// Charge loops are allowed: fires set off by charge happen on the next tick, so a loop runs at a
+// steady pace instead of all at once. RUNAWAY_LIMIT only guards the browser against a runaway step.
+export const RUNAWAY_LIMIT = 400; // activations per side per tick
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
 export const OVERTIME = 30;    // storm starts after this many seconds
-export const STORM_BASE = 2;     // storm damage of the first hit
+export const STORM_BASE = 12;    // storm damage of the first hit
 export const STORM_GROWTH = 1.25; // each storm hit is this much bigger than the last (ticks every BURN_TICK)
 export const TIME_LIMIT = 120; // hard stop, counts as a draw
 export const MAX_BARS = 3;
@@ -33,6 +35,7 @@ export class Fighter {
     }
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
     this.speedPerm = 1 + (this.art.speed || 0); this.hastes = []; this.slows = [];
+    this.ready = []; this.fired = 0;
   }
   speed(t) {
     let s = this.speedPerm;
@@ -53,6 +56,7 @@ export class Battle {
   step(dt = SIM_DT) {
     if (this.done) return;
     if (!this.started) { this.started = true; for (let i = 0; i < 2; i++) this.battleStart(i); }
+    for (let i = 0; i < 2; i++) { this.f[i].fired = 0; this.fireReady(i); }
     this.t += dt;
     for (let i = 0; i < 2; i++) this.advance(i, dt);
     this.burnAcc += dt;
@@ -85,20 +89,30 @@ export class Battle {
     me.bars = me.bars.filter(b => !b.dead);
   }
   // Give an item charge; when it reaches its cost it fires (multicast = several times) and spends it.
-  addCharge(i, inst, n, bar) {
+  // From the bar: fire now. From another item (deferred): fire at the start of the next tick.
+  addCharge(i, inst, n, bar, deferred = false) {
     if (!inst.cost) return; // passive items don't charge
     inst.charge += n;
     this.fx('charge', i, inst);
-    if (inst.charge < inst.cost || (this.chain || 0) >= MAX_CHARGE_CHAIN) return;
+    if (inst.charge < inst.cost) return;
+    if (deferred) { const me = this.f[i]; if (!me.ready.includes(inst)) me.ready.push(inst); return; }
+    this.fire(i, inst, bar);
+  }
+  fireReady(i) {
+    const me = this.f[i], queue = me.ready; me.ready = [];
+    for (const inst of queue) if (inst.charge >= inst.cost) this.fire(i, inst, null);
+  }
+  fire(i, inst, bar) {
+    const me = this.f[i];
+    if (me.fired >= RUNAWAY_LIMIT) return; // safety valve; the charge stays for the next tick
     inst.charge -= inst.cost;
     const d = def(inst);
     if (d.accel) inst.cost = Math.max(d.minCharge ?? 1, inst.cost - d.accel); // speeds up each time it fires
-    this.chain = (this.chain || 0) + 1;
     for (let k = 0; k < (inst.multicast || 1) + inst.extraMc; k++) {
       if (k > 0 && bar?.jump) break; // a rewind already sent this bar back
+      me.fired++;
       this.activate(i, inst, bar);
     }
-    this.chain--;
   }
   activate(i, inst, bar) {
     const me = this.f[i], d = def(inst), L = inst.level - 1, sp = d.special;
@@ -203,11 +217,11 @@ export class Battle {
       case 'buffAll':
         for (const o of me.items) if (tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o); }
         break;
-      case 'charge': { // give other items charge (they fire right away if that fills them)
+      case 'charge': { // give other items charge; full ones fire next tick. Charge-givers don't charge each other.
         for (const o of me.items) {
-          if (o === inst || !o.cost || (sp.tag && !tagsOf(o).has(sp.tag))) continue;
+          if (o === inst || !o.cost || (sp.tag && !tagsOf(o).has(sp.tag)) || ITEMS[o.id].special?.kind === 'charge') continue;
           if (sp.scope === 'adjacent' ? !adjacent(inst, o) : !inScope(sp.scope, inst, o)) continue;
-          this.fx('buff', i, o); this.addCharge(i, o, sv, null);
+          this.fx('buff', i, o); this.addCharge(i, o, sv, null, true);
         }
         break;
       }

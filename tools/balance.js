@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { buildPool } from '../src/bots/pool.js';
 import { T, resetTelemetry } from '../src/balance/telemetry.js';
-import { itemImpact, analyze, diffReports, applySet, scaleItem } from '../src/balance/analyze.js';
+import { itemImpact, analyze, diffReports, applySet, scaleItem, fightLengths } from '../src/balance/analyze.js';
 import { RARITIES } from '../src/core/rules.js';
 
 const args = process.argv.slice(2);
@@ -33,6 +33,7 @@ const telemetry = JSON.parse(JSON.stringify(T)); resetTelemetry(false);
 const impact = itemImpact(pool, { samples: quick ? 16 : 36, opps: quick ? 8 : 10, onProgress: (i, n) => step(`measuring item impact ${i}/${n}`) });
 const report = analyze(pool, telemetry, impact);
 report.changes = changes;
+report.fights = fightLengths(pool);
 step(`done in ${((Date.now() - t0) / 1000).toFixed(0)}s`); process.stdout.write('\n\n');
 
 const basePath = new URL('../data/balance-baseline.json', import.meta.url);
@@ -65,4 +66,6 @@ console.log('Bot diversity (items making up 80% of picks / top-5 share):',
   Object.entries(report.diversity).map(([s, d]) => `${s} ${d.itemsFor80pct} / ${pct(d.top5Share)}`).join('  '));
 console.log('Artifacts picked when offered:', report.artifacts.sort((a, b) => a.pickRate - b.pickRate)
   .map(a => `${a.name} ${pct(a.pickRate)}`).join(', '));
+console.log('Fight length by day (median s [10%–90%], % reaching the storm at 30s):');
+console.log('  ' + Object.entries(report.fights).map(([d, f]) => `D${d} ${f.median.toFixed(0)}s [${f.p10.toFixed(0)}–${f.p90.toFixed(0)}] ${Math.round(f.storm * 100)}%`).join('  '));
 console.log('\nWrote data/balance-report.json. Open /balance.html with `npm run dev` for the sortable view.');

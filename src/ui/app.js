@@ -86,7 +86,7 @@ function advanceDay(result) {
   render();
 }
 
-const myMaxHp = () => maxHp(S.day) + (S.bonusHp || 0);
+const myMaxHp = () => Math.round(maxHp(S.day) * (1 + (S.bonusHpPct || 0)));
 const freeRerolls = () => artifactEffects(S.artifacts).freeRerolls || 0;
 const currentRerollCost = () => (S.rerolls < freeRerolls() ? 0 : rerollCost(S.rerolls - freeRerolls()));
 
@@ -140,7 +140,7 @@ const BOONS = [
     apply() { const ids = Object.keys(ITEMS).filter(k => ITEMS[k].rarity === 'legendary'); S.bench.push(newInst(rng.pick(ids))); } },
   { id: 'shine', icon: '✨', name: 'Polished', text: 'Your most valuable board item becomes shiny: +1 multicast.',
     apply() { const best = [...S.board].sort((a, b) => priceOf(b) - priceOf(a))[0]; if (best) best.multicast += SHINY_BONUS; } },
-  { id: 'vigor', icon: '❤️', name: 'Second Wind', text: '+25 max HP for the rest of the run.', apply() { S.bonusHp += 25; } },
+  { id: 'vigor', icon: '❤️', name: 'Second Wind', text: '+15% max HP for the rest of the run.', apply() { S.bonusHpPct = (S.bonusHpPct || 0) + 0.15; } },
   { id: 'hoard', icon: '💰', name: 'Hidden Hoard', text: 'Gain 30 gold.', apply() { S.gold += 30; } },
   { id: 'mastery', icon: '⬆️', name: 'Mastery', text: 'Your best item below Super Rare goes up one rarity tier.',
     apply() { const it = [...S.board, ...S.bench].filter(o => o.level < maxLevel(o) && tierIndex(o) < 3).sort((a, b) => priceOf(b) - priceOf(a))[0]; if (it) it.level++; } },

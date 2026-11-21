@@ -92,9 +92,10 @@ function rollMod(rng) {
   return entries[0][0];
 }
 export const rerollCost = n => 1 + n;
-// Max HP grows on a curve: each day is HP_GROWTH times the last (40, 45, 50, 56, ... 156 on Day 13).
-export const HP_BASE = 40, HP_GROWTH = 1.12;
-export const maxHp = day => Math.round(HP_BASE * HP_GROWTH ** (day - 1));
+// Max HP per day, calibrated by tools/calibrate-hp.js so a typical fight lasts ~18s on every day
+// (items scale up fast, so HP has to as well), then smoothed. Days past the end use the last value.
+export const HP_BY_DAY = [260, 460, 750, 1040, 1410, 1820, 2570, 3310, 4160, 4760, 5240, 6130, 7250, 8730, 9960, 12330, 13760];
+export const maxHp = day => HP_BY_DAY[Math.min(day, HP_BY_DAY.length) - 1];
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 
 // Everyone starts with an empty board and buys their first items on Day 1.

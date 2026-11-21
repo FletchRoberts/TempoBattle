@@ -29,7 +29,7 @@ game skips straight to the fight for now.
 | Grid | 3 rows × 5 columns (15 cells), so weak items have to be swapped out. Items are 1×1 up to 2×3 and can be rotated. |
 | Bar | 0.25s per column (`COL_TIME`), so a full pass is 1.25s. |
 | Charge | Each time the bar hits an item it gains 1 charge (yellow bar). At its cost it fires and spends it. Default 4 (= once per 5s); fast items 2–3 with smaller numbers, heavy items 5–8 with bigger ones. `charge` can list one cost per tier (fewer as it levels). `accel` = charges saved each time it fires, down to `minCharge`. Items with only triggers, auras, gold, start effects or amplify are passive and don't charge. |
-| Charging others | `special: { kind: 'charge', scope: 'adjacent' \| 'row' \| 'column', v }` (Dynamo, Tesla Coil); as a `start` special it's a head start (Capacitor). Chains stop after 3 deep. Static Charge artifact: all items start with extra charge. |
+| Charging others | `special: { kind: 'charge', scope: 'adjacent' \| 'row' \| 'column', v }` (Dynamo, Tesla Coil); as a `start` special it's a head start (Capacitor). Charge-givers don't charge each other. Items filled by charge fire on the next tick, so loops (e.g. Dynamo + a weapon + Relay) can run all fight without freezing the game. Static Charge artifact: all items start with extra charge. |
 | Per-fire bonuses | Flat bonuses (modifiers, infusions, flat auras, buffs, artifact Burn/Poison adds) are scaled by charge cost ÷ 4, so a +5 modifier is worth the same per second on a fast or a slow item. |
 | Burn | Deals its stacks every 0.5s, then loses 1. Against Shield it only does 80% damage (`BURN_VS_SHIELD`), so each Shield point blocks 1.25 Burn. |
 | Poison | Deals its stacks every 1s, ignores Shield, never fades. |
@@ -53,7 +53,7 @@ game skips straight to the fight for now.
 | Moving items | Drag, or click to pick up and click to place. Placing on another item swaps them (it goes to your hand). Esc / right-click puts a held item back. |
 | Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
-| HP curve | Base max HP grows 12% a day: 40, 45, 50, 56 … 111 on Day 10, 156 on Day 13 (`HP_BASE`, `HP_GROWTH`). |
+| HP | Bazaar-sized numbers: 260 on Day 1 up to ~13,800 on Day 17 (`HP_BY_DAY`), calibrated with `node tools/calibrate-hp.js` so a typical fight lasts ~18s on every day. Item numbers are on the same scale (a Common Dagger hits for 24). |
 | Artifacts | Run-wide passives in `src/data/artifacts.js`. Choose 1 of 3 on Days 3, 6, 9 … (and from a Treasure Map); picking one again levels it up to IV. They're saved with your board so opponents carry theirs. |
 | Gold items | `gold: { when, v, grow? }` pays out after fights while on your board, alone (Coin Purse, Piggy Bank) or alongside a fight effect (Tax Collector, Lucky Clover, Trade Caravan). `map` grants an artifact choice after N fights. |
 | Gold on trigger | A `gold` effect earns gold each time the item fires, capped per fight by `goldCap` (Pickpocket Glove, Midas Hammer, Slot Machine). Paid out after the fight. |
