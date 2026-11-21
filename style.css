@@ -181,7 +181,7 @@ button { font: inherit; color: inherit; }
 .callout { border-left: 2px solid var(--accent); padding-left: 8px; color: var(--accent); margin: 0; }
 
 .rules ul { margin: 8px 0 0; padding-left: 16px; display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
-.k-burn { color: var(--c-fire); } .k-poison { color: var(--c-poison); } .k-regen { color: var(--c-regen); } .k-shield { color: var(--c-shield); }
+.k-burn { color: var(--c-fire); } .k-storm { color: var(--c-storm); } .k-poison { color: var(--c-poison); } .k-regen { color: var(--c-regen); } .k-shield { color: var(--c-shield); }
 
 /* ---------- Battle ---------- */
 .fighter { display: grid; gap: 10px; }

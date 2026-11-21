@@ -5,7 +5,8 @@ import { COLS, def, statsOf, tagsOf, adjacent, uid } from './rules.js';
 
 export const COL_TIME = 0.5;   // seconds for a bar to cross one column at speed ×1
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
-export const OVERTIME = 30;    // after this both sides take rising true damage
+export const OVERTIME = 30;    // storm starts after this many seconds
+export const STORM_RAMP = 1;   // storm damage per tick grows by this much every tick (ticks every BURN_TICK)
 export const TIME_LIMIT = 120; // hard stop, counts as a draw
 export const MAX_BARS = 3;
 export const SIM_DT = 0.05;    // fixed simulation step (divides every tick interval evenly)
@@ -30,13 +31,18 @@ export class Battle {
   constructor(a, b, fx) {
     this.f = [a, b]; this.t = 0; this.fx = fx || (() => {});
     this.burnAcc = 0; this.secAcc = 0; this.done = false; this.result = null;
+    this.ticks = 0; this.storm = 0; // storm = current damage per tick (0 until it starts)
   }
   step(dt = SIM_DT) {
     if (this.done) return;
     this.t += dt;
     for (let i = 0; i < 2; i++) this.advance(i, dt);
     this.burnAcc += dt;
-    while (this.burnAcc >= BURN_TICK - 1e-9) { this.burnAcc -= BURN_TICK; for (let i = 0; i < 2; i++) this.burnTick(i); }
+    while (this.burnAcc >= BURN_TICK - 1e-9) {
+      this.burnAcc -= BURN_TICK; this.ticks++;
+      for (let i = 0; i < 2; i++) this.burnTick(i);
+      if (this.ticks * BURN_TICK > OVERTIME + 1e-9) this.stormTick();
+    }
     this.secAcc += dt;
     while (this.secAcc >= 1 - 1e-9) { this.secAcc -= 1; for (let i = 0; i < 2; i++) this.secTick(i); }
     this.checkEnd();
@@ -120,7 +126,11 @@ export class Battle {
     const me = this.f[i];
     if (me.poison > 0) { me.hp -= me.poison; this.fx('float', i, `−${me.poison}`, 'poison'); }
     if (me.regen > 0) { me.hp = Math.min(me.maxHp, me.hp + me.regen); this.fx('float', i, `+${me.regen}`, 'regen'); }
-    if (this.t > OVERTIME) { const dmg = Math.ceil(this.t - OVERTIME - 1e-9) * 2; me.hp -= dmg; this.fx('float', i, `−${dmg}`, 'storm'); }
+  }
+  // Storm: same tick rate as Burn, ignores Shield, hits both sides, grows every tick.
+  stormTick() {
+    this.storm += STORM_RAMP;
+    for (let i = 0; i < 2; i++) { this.f[i].hp -= this.storm; this.fx('float', i, `−${this.storm}`, 'storm'); }
   }
   checkEnd() {
     const [a, b] = this.f;

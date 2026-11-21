@@ -6,7 +6,7 @@ import {
   def, priceOf, sellValue, upgradeCost, rerollCost, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot,
 } from '../core/rules.js';
-import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, SIM_DT } from '../core/sim.js';
+import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_RAMP, SIM_DT } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
 
@@ -232,7 +232,7 @@ function rulesHtml() {
     <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. Shield blocks it.</li>
     <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
     <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
-    <li>After ${OVERTIME}s a storm deals rising damage to both sides.</li>
+    <li>After ${OVERTIME}s a <b class="k-storm">storm</b> hits both sides every ${BURN_TICK}s, ignoring Shield. Its damage goes up by ${STORM_RAMP} every hit.</li>
   </ul>`;
 }
 
@@ -472,7 +472,7 @@ function updateBattle(acc) {
     }
     for (const [id, n] of U.barEls) if (!alive.has(id)) { n.remove(); U.barEls.delete(id); }
   }
-  ui.clock.innerHTML = `<span>${B.t.toFixed(1)}s</span>` + (B.t > OVERTIME ? `<b>Storm</b>` : `<small>storm at ${OVERTIME}s</small>`);
+  ui.clock.innerHTML = `<span>${B.t.toFixed(1)}s</span>` + (B.storm ? `<b>Storm ${B.storm}/hit</b>` : `<small>storm at ${OVERTIME}s</small>`);
 }
 function onFx(type, i, a, b) {
   if (!ui) return;

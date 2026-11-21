@@ -31,7 +31,7 @@ game skips straight to the fight for now.
 | Burn | Deals its stacks every 0.5s, then loses 1. Shield blocks it. |
 | Poison | Deals its stacks every 1s, ignores Shield, never fades. |
 | Regen | Heals its stacks every 1s. |
-| Storm | After 30s both sides take rising true damage. Hard draw at 120s. |
+| Storm | After 30s both sides take damage every 0.5s (the Burn tick), ignoring Shield. It starts at 1 and grows by 1 each hit (`OVERTIME`, `STORM_RAMP`). Hard draw at 120s. |
 | Levels | I–IV. Merge two identical items of the same level, or pay to upgrade. |
 | Infusion | An essence adds a second stat and its tag to an item. |
 | Run | 4 lives, 10 wins to clear, so at most 13 days. |
