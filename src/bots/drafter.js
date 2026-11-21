@@ -9,6 +9,7 @@ import {
   afterFightGold, shopRank, offerPrice,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
+import { tel, telShop } from '../balance/telemetry.js';
 
 const POWER = { common: 1, uncommon: 1.35, rare: 1.75, superrare: 2.4, legendary: 3.2 };
 // Items whose value depends on what sits next to / in line with them get placed last.
@@ -151,6 +152,7 @@ function artifactAppeal(id, st, arch, day) {
 function chooseArtifact(st, day, arch, skill, rng, bench) {
   const open = Object.keys(ARTIFACTS).filter(id => (st.artifacts[id] || 0) < 4);
   const choices = rng.shuffle(open).slice(0, 3);
+  for (const id of choices) tel('artOffered', id);
   let best = null;
   for (const id of choices) {
     let sc = artifactAppeal(id, st, arch, day) + rng.next() * skill.noise;
@@ -161,7 +163,7 @@ function chooseArtifact(st, day, arch, skill, rng, bench) {
     }
     if (!best || sc > best.sc) best = { id, sc };
   }
-  if (best) st.artifacts[best.id] = (st.artifacts[best.id] || 0) + 1;
+  if (best) { st.artifacts[best.id] = (st.artifacts[best.id] || 0) + 1; tel('artPicked', best.id); }
 }
 const byValue = (board, arch) => (a, b) => itemValue(b, board, arch) - itemValue(a, board, arch);
 
@@ -190,6 +192,7 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
   let cur = evalBoard(st.board);
   for (let rerolls = 0; ; rerolls++) {
     const offers = rollShop(day, rng, shopRank(day, st.rankBonus));
+    telShop(offers);
     for (const o of offers) if (o.kind === 'token' && wantToken(o, st, day, rng)) buyToken(o, st);
     for (;;) {
       let best = null;
@@ -206,9 +209,9 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
           for (const target of modTargets(trial.board, o.id, arch).slice(0, 2)) {
             const t2 = { gold: trial.gold, board: trial.board.map(copyItem) };
             applyMod(t2.board[trial.board.indexOf(target)], o.id);
-            consider(t2, () => { o.sold = true; });
+            consider(t2, () => { o.sold = true; tel('modBought', o.id); });
           }
-        } else if (acquire(trial, copyItem(o.inst), Infinity, arch)) consider(trial, () => { o.sold = true; });
+        } else if (acquire(trial, copyItem(o.inst), Infinity, arch)) consider(trial, () => { o.sold = true; tel('bought', o.inst.id); });
       }
       if (!best || best.sc <= cur + 0.005) break;
       st.gold = best.trial.gold; st.board = best.trial.board; cur = best.sc; best.apply();
@@ -224,7 +227,9 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
 
 function shopDay(st, day, arch, skill, rng) {
   for (let rerolls = 0; ; rerolls++) {
-    const offers = rollShop(day, rng, shopRank(day, st.rankBonus)).map(o => {
+    const rolled = rollShop(day, rng, shopRank(day, st.rankBonus));
+    telShop(rolled);
+    const offers = rolled.map(o => {
       if (o.kind === 'token') return { o, s: o.id === 'coupon' ? 100 : 1.5 * econWeight(day) + rng.next() * skill.noise };
       if (o.kind === 'essence') return { o, s: 1 + rng.next() * skill.noise };
       if (o.kind === 'mod') return { o, s: modAppeal(o.id, arch) + rng.next() * skill.noise };
@@ -238,11 +243,11 @@ function shopDay(st, day, arch, skill, rng) {
       if (o.kind === 'essence') { if (useWildEssence(st.board, arch, rng)) st.gold -= offerPrice(o, st.coupon); continue; }
       if (o.kind === 'mod') {
         const target = modTargets(st.board, o.id, arch)[0];
-        if (target) { applyMod(target, o.id); st.gold -= offerPrice(o, st.coupon); }
+        if (target) { applyMod(target, o.id); st.gold -= offerPrice(o, st.coupon); tel('modBought', o.id); }
         continue;
       }
       const price = offerPrice(o, st.coupon);
-      if (acquire(st, o.inst, s, arch)) st.gold -= price;
+      if (acquire(st, o.inst, s, arch)) { st.gold -= price; tel('bought', o.inst.id); }
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
     st.gold -= botRerollCost(st, rerolls);

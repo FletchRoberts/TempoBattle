@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node tools/serve.js",
-    "pool": "node tools/build-pool.js"
+    "pool": "node tools/build-pool.js",
+    "balance": "node tools/balance.js"
   }
 }

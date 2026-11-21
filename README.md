@@ -36,7 +36,7 @@ game skips straight to the fight for now.
 | Storm | After 30s both sides take a weapon-like hit every 0.5s (the Burn tick); Shield absorbs it first. It starts at 2 and each hit is 25% bigger (`OVERTIME`, `STORM_BASE`, `STORM_GROWTH`). Hard draw at 120s. |
 | Levels | I–IV. The only way up is merging: two identical items of the same level make one item a level higher. |
 | Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
-| Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. An item holds level + 1. Echo Rune (rare) adds +1 multicast. |
+| Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. No limit per item. Echo Rune (rare) adds +1 multicast (up to ×4). |
 | Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. |
 | Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): +1 multicast on top of its own, double price. Merging keeps it. Some items have built-in `multicast`. |
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
@@ -73,7 +73,7 @@ pool, bots supply those boards.
 2. **Every day is rated by round robin** (`src/bots/pool.js`). Each team fights every other team from
    both seats (side 0 acts first in a tick), and its win rate against the field becomes `wr`.
    The sim uses a fixed timestep, so results match the in-game fight exactly.
-3. **Matchmaking** picks a random opponent whose `wr` is within 40–60% (`MATCH_BAND`). If fewer than
+3. **Matchmaking** picks a random opponent whose `wr` is within 30–70% (`MATCH_BAND`). If fewer than
    3 teams qualify, the band widens by 5% at a time. Your own boards and teams you already
    fought this run are excluded.
 4. **Player boards join the pool.** After each fight your board is rated against that day's field
@@ -102,3 +102,36 @@ src/ui/                browser game (app.js) and opponent storage (pool-store.js
 tools/                 build-pool.js, serve.js
 data/pool.json         generated opponent pool
 ```
+
+## Balancing: the Balance Lab
+
+```bash
+npm run balance                          # ~75s: fresh bot pool, measure every item, compare to baseline
+```
+
+```bash
+npm run balance -- --scale crossbow=1.2  # try a change in memory without editing items.js
+```
+
+```bash
+npm run balance -- --save-baseline       # accept the current state as the new baseline
+```
+
+Then `npm run dev` and open `/balance.html` for a sortable, filterable table.
+
+What it measures per item:
+
+- **Pick rate**: bought ÷ offered across all bot shops, so rarity doesn't count against an item.
+- **Value per gold**: take real boards that contain the item, remove that copy, re-fight the same
+  opponents. The drop in win rate ÷ its gold cost, relative to the average item on the same day
+  (1.00 = average). Also per grid cell.
+- **±**: standard error. Items are only flagged `strong` / `weak` when they're clearly outside their
+  tier's median even allowing for noise. Gold items are judged by payback (fights to earn their
+  price back), Treasure Map by artifacts.
+- **Power index**: presence-weighted value per gold. More than +5% vs the baseline is flagged as
+  power creep. Suggestions only move items toward their tier median, never above it.
+- **Bot diversity**: how many items make up 80% of each skill level's picks. If experts collapse onto
+  a few items, the bots are over-optimising and the numbers will mislead.
+
+Other options: `--quick` (faster, noisier), `--set item.path=values`, `--set artifact:id.v=...`,
+`--only weak`.

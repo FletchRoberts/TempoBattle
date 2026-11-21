@@ -4,8 +4,9 @@ import { MAX_DAYS, maxHp, fromSnapshot } from '../core/rules.js';
 import { duel } from '../core/sim.js';
 import { draftRun } from './drafter.js';
 import { ARCHETYPES, SKILLS, botName } from './archetypes.js';
+import { T } from '../balance/telemetry.js';
 
-export const MATCH_BAND = [0.4, 0.6];
+export const MATCH_BAND = [0.3, 0.7];
 
 // One bot per archetype × skill × seed. Each bot contributes one team to every day.
 // smart=false skips the slower simulation-guided redraft (used for the in-browser fallback).
@@ -16,8 +17,11 @@ export function buildPool({ seedsPerCombo = 2, baseSeed = 1, days = MAX_DAYS, sm
   // Pass 1: every bot drafts on gut feel.
   for (const archId of Object.keys(ARCHETYPES)) for (const skillId of Object.keys(SKILLS)) for (let s = 0; s < seedsPerCombo; s++) {
     const seed = baseSeed * 100003 + n++;
+    // Smart bots redraft in pass 2, so their pass-1 draft must not count in shop telemetry.
+    const telWas = T.on; if (smart && SKILLS[skillId].lookahead) T.on = false;
     bots.push({ id: `bot-${archId}-${skillId}-${s}`, name: botName(rng), arch: archId, skill: skillId, seed,
       snaps: draftRun({ arch: ARCHETYPES[archId], skill: { ...SKILLS[skillId], lookahead: 0 }, seed, days }) });
+    T.on = telWas;
   }
   // Pass 2: bots with lookahead redraft, testing each buy against a sample of the pass-1 field for that day.
   const benchCache = {};

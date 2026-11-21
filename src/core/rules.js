@@ -17,7 +17,6 @@ export const SHINY_PRICE_MULT = 2;
 export const PREINFUSED_CHANCE = 0.08, PREINFUSED_SURCHARGE = 3;
 export const WILD_ESSENCE_CHANCE = 0.2;
 export const modOffers = day => (day >= 3 ? 2 : 1);   // modifier offers per shop
-export const modSlots = inst => inst.level + 1;        // modifiers an item can hold
 export const LV = ['I', 'II', 'III', 'IV'];
 
 // What happens on each day, in order. 'encounter' is a placeholder slot for events / PvE.
@@ -46,7 +45,7 @@ export function mergeInto(target, src) {
   target.level++;
   target.multicast = Math.max(target.multicast, src.multicast); // shiny survives the merge
   if (!target.infusion && src.infusion) target.infusion = src.infusion;
-  target.mods = [...(target.mods || []), ...(src.mods || [])].slice(0, modSlots(target));
+  target.mods = [...(target.mods || []), ...(src.mods || [])]; // no limit on modifiers
   return target;
 }
 
@@ -56,7 +55,6 @@ export function rollInfusion(rng, except = null) {
 }
 export function canApplyMod(inst, modId) {
   const m = MODIFIERS[modId];
-  if ((inst.mods || []).length >= modSlots(inst)) return 'No free modifier slots. Merge it up a level for more.';
   if (m.multicast && inst.multicast >= 4) return 'That item already multicasts as much as it can.';
   return null;
 }

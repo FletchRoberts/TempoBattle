@@ -3,7 +3,7 @@ import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME,
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, modSlots, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
@@ -49,7 +49,9 @@ function advancePhase() {
   if (next === 'pvp') return startBattle();
 }
 function nextDay(result) {
-  S.history.push({ day: S.day, result, opponent: S.opponent.name, oppWr: S.opponent.wr });
+  if (S.myWr == null) rateMyBoard(); // in case Continue was clicked before the rating finished
+  S.history.push({ day: S.day, result, opponent: S.opponent.name, oppWr: S.opponent.wr, myWr: S.myWr });
+  S.myWr = null;
   if (result === 'win') S.wins++;
   if (result === 'loss') S.lives = Math.max(0, S.lives - lifeLoss(S.day));
   if (S.wins >= WINS_TO_CLEAR) { S.phase = 'over'; return render(); }
@@ -316,7 +318,7 @@ function showHelp() {
       <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
       <li><b>Shiny items.</b> Rarely an item rolls shiny: +${SHINY_BONUS} multicast, so it fires an extra time every time the bar hits it. Some items multicast on their own. Merging keeps the shine.</li>
-      <li><b>Modify.</b> Buy a modifier (like +3 Damage), click it below your bench, then click an item. Items hold level + 1 modifiers.</li>
+      <li><b>Modify.</b> Buy a modifier (like +3 Damage), click it below your bench, then click an item. Stack as many as you like.</li>
       <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
       <li><b>Artifacts.</b> Every ${ARTIFACT_DAYS} days you choose 1 of 3 artifacts: run-wide bonuses like a faster bar or more damage. Picking one again levels it up. A Treasure Map also earns you a pick.</li>
@@ -471,7 +473,8 @@ function historyPanel() {
     return p;
   }
   const ol = el('ol', 'hist');
-  for (const h of S.history) ol.append(el('li', 'h-' + h.result, `<span>Day ${h.day}</span><b>${h.result}</b><span class="muted">vs ${h.opponent} · rated ${pct(h.oppWr)}</span>`));
+  ol.append(el('li', 'hist-head', '<span></span><span></span><span>Opponent · their rating</span><span>You</span>'));
+  for (const h of S.history) ol.append(el('li', 'h-' + h.result, `<span>Day ${h.day}</span><b>${h.result}</b><span class="muted">${h.opponent} · ${pct(h.oppWr)}</span><span class="me">${h.myWr != null ? pct(h.myWr) : '–'}</span>`));
   p.append(ol);
   return p;
 }
@@ -514,7 +517,7 @@ function showInspector(target) {
     const m = MODIFIERS[target.mod];
     p.innerHTML = `<div class="ins-h"><span class="ins-ico">${m.icon}</span><div><h3>${m.name}</h3><span class="chip">Modifier</span></div></div>
       <ul class="effects"><li class="s-${m.stat || 'multicast'}">${m.stat ? `Add <span class="cur">+${m.v}</span> ${STAT_NAME[m.stat]} to an item, and the ${TAG_NAME[m.tag]} tag` : `Add +${m.multicast} multicast to an item`}</li>
-      <li>Permanent. An item holds level + 1 modifiers, and they carry over when you merge.</li></ul>`;
+      <li>Permanent and stackable, with no limit per item. They carry over when you merge.</li></ul>`;
     return;
   }
   const inst = target.inst, d = def(inst);
@@ -530,7 +533,7 @@ function showInspector(target) {
     actions = `<div class="ins-actions">${up}${rot}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
   }
   p.innerHTML = `<div class="ins-h r-${d.rarity}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name} <small>${LV[inst.level - 1]}</small></h3>
-    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span><span class="chip">Mods ${inst.mods?.length || 0}/${modSlots(inst)}</span>${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
+    <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span>${inst.mods?.length ? `<span class="chip">Mods ${inst.mods.length}</span>` : ''}${isShiny(inst) ? '<span class="chip shiny-tag">Shiny</span>' : ''}</div></div>
     <div class="tags">${tags}</div><ul class="effects">${describe(inst) || '<li class="muted">No active effect.</li>'}</ul>${mergeHint}${actions}`;
   const sl = $('#btn-sell', p);
   if (sl) sl.onclick = () => sellInst(inst);
@@ -876,10 +879,16 @@ function showResult(res) {
   cont.onclick = () => { m.remove(); nextDay(res); };
   cont.focus();
   // Rate and save the player's board so it can be matched against future runs.
-  setTimeout(() => {
-    const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot, artifacts: { ...S.artifacts } });
-    $('.rating', m).innerHTML = `Your board wins <b>${pct(team.wr)}</b> against Day ${S.day}'s field. It's now in the opponent pool.`;
+  clearTimeout(S.rateTimer);
+  S.rateTimer = setTimeout(() => {
+    if (S.myWr == null) rateMyBoard();
+    const r = $('.rating', m);
+    if (r) r.innerHTML = `Your board wins <b>${pct(S.myWr)}</b> against Day ${S.day}'s field. It's now in the opponent pool.`;
   }, 30);
+}
+function rateMyBoard() {
+  const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot, artifacts: { ...S.artifacts } });
+  S.myWr = team.wr;
 }
 
 // ===================== Game over =====================

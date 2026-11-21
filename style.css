@@ -258,7 +258,10 @@ button { font: inherit; color: inherit; }
 .history { display: grid; gap: 8px; }
 .history p { margin: 0; font-size: 13px; }
 .hist { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; }
-.hist li { display: grid; grid-template-columns: 48px 40px minmax(0, 1fr); gap: 6px; align-items: baseline; }
+.hist li { display: grid; grid-template-columns: 44px 38px minmax(0, 1fr) 36px; gap: 6px; align-items: baseline; }
+.hist .hist-head { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.hist .hist-head span:last-child, .hist .me { text-align: right; font-family: var(--f-mono); }
+.hist .me { color: var(--fg); }
 .hist b { text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; }
 .hist .h-win b { color: var(--c-regen); } .hist .h-loss b { color: var(--c-fire); } .hist .h-draw b { color: var(--muted); }
 .over-card .history { text-align: left; }

@@ -1,0 +1,83 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Balance Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<style>
+  .lab { max-width: 1180px; margin: 0 auto; display: grid; gap: 14px; }
+  .lab h1 { font-family: var(--f-display); font-size: 24px; margin: 0; }
+  .lab h1 span { color: var(--accent); }
+  .summary { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+  .summary div { display: grid; } .summary dt { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .summary dd { margin: 0; font-family: var(--f-mono); font-size: 16px; }
+  .creep { color: var(--c-fire); } .ok { color: var(--c-regen); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .controls select, .controls input { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font: inherit; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+  th:first-child, td:first-child, th.l, td.l { text-align: left; }
+  td.mono { font-family: var(--f-mono); }
+  .bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--accent); vertical-align: middle; margin-right: 6px; }
+  .flag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-right: 4px; background: var(--panel-2); border: 1px solid var(--line); }
+  .flag.strong, .flag.overpicked, .flag.fast-payback { color: var(--c-fire); border-color: var(--c-fire); }
+  .flag.weak, .flag.underused, .flag.slow-payback { color: var(--c-slow); border-color: var(--c-slow); }
+  .up { color: var(--c-regen); } .down { color: var(--c-fire); }
+  .note { color: var(--muted); white-space: normal; text-align: left; min-width: 220px; }
+  .r-common { color: var(--r-common); } .r-uncommon { color: var(--r-uncommon); } .r-rare { color: var(--r-rare); }
+  .r-superrare { color: var(--r-superrare); } .r-legendary { color: var(--r-legendary); }
+  code { font-family: var(--f-mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 3px; }
+</style>
+<div class="lab">
+  <header class="panel">
+    <h1>Balance <span>Lab</span></h1>
+    <p class="muted">Run <code>npm run balance</code> to refresh. <b>Pick</b> = bought when offered. <b>Val/g</b> = how much removing the item hurts the board, per gold, where 1.00 is an average item on the same day. <b>±</b> is the noise; items are only flagged when they're clearly outside their tier's middle. Suggestions aim for the tier median, never above it.</p>
+    <dl class="summary" id="summary"></dl>
+  </header>
+  <section class="panel">
+    <div class="controls">
+      <select id="f-rarity" aria-label="Rarity"><option value="">All rarities</option></select>
+      <select id="f-flag" aria-label="Flag"><option value="">All items</option><option value="any">Any flag</option></select>
+      <input id="f-text" placeholder="Search items" aria-label="Search items">
+    </div>
+  </section>
+  <section class="panel tablewrap"><table id="tbl"></table></section>
+</div>
+<script type="module">
+const $ = s => document.querySelector(s);
+const pct = x => Number.isFinite(x) ? Math.round(x * 100) + '%' : '–';
+const n2 = x => Number.isFinite(x) ? x.toFixed(2) : '–';
+let rep, sortKey = 'vpg', sortDir = 1;
+try { rep = await (await fetch('data/balance-report.json')).json(); }
+catch { document.querySelector('.lab').insertAdjacentHTML('beforeend', '<p class="panel">No report yet. Run <code>npm run balance</code> first.</p>'); throw 0; }
+const d = Object.fromEntries((rep.diff?.items || []).map(x => [x.id, x]));
+const creep = rep.diff?.powerChange;
+$('#summary').innerHTML = `<div><dt>Generated</dt><dd>${new Date(rep.generated).toLocaleString()}</dd></div>
+  <div><dt>Boards measured</dt><dd>${rep.teams}</dd></div>
+  <div><dt>Power index</dt><dd>${n2(rep.powerIndex)}</dd></div>
+  <div><dt>vs baseline</dt><dd class="${creep > 0.05 ? 'creep' : 'ok'}">${Number.isFinite(creep) ? (creep * 100).toFixed(1) + '%' + (creep > 0.05 ? ' power creep' : '') : 'no baseline'}</dd></div>
+  ${Object.entries(rep.tiers).map(([t, v]) => `<div><dt>${t} median val/g</dt><dd class="r-${t}">${n2(v.medVpg)}</dd></div>`).join('')}
+  ${rep.changes?.length ? `<div><dt>Tried this run</dt><dd>${rep.changes.join('; ')}</dd></div>` : ''}`;
+for (const t of Object.keys(rep.tiers)) $('#f-rarity').insertAdjacentHTML('beforeend', `<option>${t}</option>`);
+for (const f of [...new Set(rep.rows.flatMap(r => r.flags))]) $('#f-flag').insertAdjacentHTML('beforeend', `<option>${f}</option>`);
+const cols = [['name', 'Item', 'l'], ['rarity', 'Rarity', 'l'], ['pickRate', 'Pick'], ['presence', 'On boards'], ['vpg', 'Val/g'], ['se', '±'], ['dVpg', 'Δ vs base'], ['vpc', 'Val/cell'], ['flags', 'Flags', 'l'], ['note', 'Suggestion', 'l']];
+function draw() {
+  const fr = $('#f-rarity').value, ff = $('#f-flag').value, ft = $('#f-text').value.toLowerCase();
+  const max = Math.max(...rep.rows.map(r => r.vpg).filter(Number.isFinite));
+  const rows = rep.rows.filter(r => (!fr || r.rarity === fr) && (!ff || (ff === 'any' ? r.flags.length : r.flags.includes(ff))) && (!ft || r.name.toLowerCase().includes(ft)))
+    .map(r => ({ ...r, dVpg: d[r.id]?.dVpg }))
+    .sort((a, b) => { const x = a[sortKey], y = b[sortKey]; return (typeof x === 'string' ? x.localeCompare(y) : (x ?? -1e9) - (y ?? -1e9)) * sortDir; });
+  $('#tbl').innerHTML = `<thead><tr>${cols.map(([k, l, c]) => `<th class="${c || ''}" data-k="${k}">${l}${sortKey === k ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>
+    <td>${r.name}</td><td class="l r-${r.rarity}">${r.rarity}</td><td class="mono">${pct(r.pickRate)}</td><td class="mono">${pct(r.presence)}</td>
+    <td class="mono"><span class="bar" style="width:${Number.isFinite(r.vpg) ? Math.max(0, r.vpg / max * 60) : 0}px"></span>${n2(r.vpg)}</td><td class="mono">${n2(r.se)}</td>
+    <td class="mono ${r.dVpg > 0 ? 'up' : r.dVpg < 0 ? 'down' : ''}">${Number.isFinite(r.dVpg) ? (r.dVpg > 0 ? '+' : '') + r.dVpg.toFixed(2) : '–'}</td>
+    <td class="mono">${n2(r.vpc)}</td><td class="l">${r.flags.map(f => `<span class="flag ${f}">${f}</span>`).join('')}</td>
+    <td class="note">${r.note || ''}${r.suggestScale !== 1 ? ` <code>--scale ${r.id}=${r.suggestScale}</code>` : ''}</td></tr>`).join('')}</tbody>`;
+  document.querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; draw(); });
+}
+for (const id of ['#f-rarity', '#f-flag']) $(id).onchange = draw;
+$('#f-text').oninput = draw;
+draw();
+</script>
