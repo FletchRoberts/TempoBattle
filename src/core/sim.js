@@ -14,8 +14,7 @@ export const MAX_BARS = 3;
 export const SIM_DT = 0.05;    // fixed simulation step (divides every tick interval evenly)
 export const MAX_SPEED = 4;    // bar speed cap; stops haste/overclock feedback loops
 export const MIN_SPEED = 0.3;  // slows can't push a bar below this
-export const HEAL_CLEANSE = 0.2;    // each Heal also removes this share of your Poison (rounded up)
-export const BURN_VS_SHIELD = 0.5;  // Burn deals only this much of its damage to Shield
+export const BURN_VS_SHIELD = 0.8;  // Burn deals only this much of its damage to Shield (1 = no reduction)
 
 export class Fighter {
   constructor(name, items, hp, artifacts = {}) {
@@ -174,7 +173,6 @@ export class Battle {
     if ((v = val('shield')) > 0) { me.shield += v; this.fx('float', i, `+${v}`, 'shield'); }
     if ((v = val('heal')) > 0) {
       me.hp += Math.min(v, me.maxHp - me.hp); this.fx('float', i, `+${v}`, 'heal');
-      if (me.poison > 0) me.poison -= Math.ceil(me.poison * HEAL_CLEANSE); // healing also eases poison
     }
     if ((v = val('regen')) > 0) { me.regen += v; this.fx('float', i, `+${v} regen`, 'regen'); }
     if ((v = val('cleanse')) > 0) { me.poison = Math.max(0, me.poison - v); me.burn = Math.max(0, me.burn - v); this.fx('float', i, `cleanse ${v}`, 'heal'); }
@@ -225,7 +223,7 @@ export class Battle {
   }
   burnTick(i) {
     const me = this.f[i]; if (me.burn <= 0) return;
-    // Shield soaks Burn at half rate: each point of Shield blocks 2 Burn damage.
+    // Shield soaks Burn at a reduced rate: each point of Shield blocks 1 / BURN_VS_SHIELD Burn damage.
     const covered = Math.min(me.burn, Math.floor(me.shield / BURN_VS_SHIELD));
     me.shield -= Math.ceil(covered * BURN_VS_SHIELD);
     me.hp -= me.burn - covered;

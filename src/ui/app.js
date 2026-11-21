@@ -6,7 +6,7 @@ import {
   def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
-import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
+import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
 import { ARTIFACTS, ARTIFACT_DAYS, artifactEffects } from '../data/artifacts.js';
@@ -334,8 +334,8 @@ function showHelp() {
     </ol>
     <h3>Effects</h3>
     <ul class="effects-key">
-      <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does half damage to Shield.</li>
-      <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades. Each Heal removes ${Math.round(HEAL_CLEANSE * 100)}% of it.</li>
+      <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does ${Math.round(BURN_VS_SHIELD * 100)}% damage to Shield.</li>
+      <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
       <li><b class="k-time">Haste</b> speeds up your bar and <b class="k-slow">Slow</b> slows the enemy's. Items marked Battle start act the moment the fight begins.</li>
       <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
       <li><b class="k-storm">Storm</b> starts at ${OVERTIME}s and hits both sides harder and harder.</li>
@@ -489,8 +489,8 @@ function rulesHtml() {
   return `<h3>How a fight works</h3>
   <ul>
     <li>A bar sweeps your 10 columns, ${COL_TIME}s per column. When it reaches an item's left edge, that item activates.</li>
-    <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does half damage to Shield.</li>
-    <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades. Each Heal removes ${Math.round(HEAL_CLEANSE * 100)}% of it.</li>
+    <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. It only does ${Math.round(BURN_VS_SHIELD * 100)}% damage to Shield.</li>
+    <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
     <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
     <li><b class="k-time">Haste</b> speeds up your bar, <b class="k-slow">Slow</b> slows the enemy's. Some items act at battle start.</li>
     <li>After ${OVERTIME}s a <b class="k-storm">storm</b> hits both sides every ${BURN_TICK}s like a weapon, so Shield blocks it. It starts at ${STORM_BASE} and each hit is ${Math.round((STORM_GROWTH - 1) * 100)}% bigger.</li>
