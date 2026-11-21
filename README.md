@@ -41,6 +41,9 @@ game skips straight to the fight for now.
 | Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): +1 multicast on top of its own, double price. Merging keeps it. Some items have built-in `multicast`. |
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
+| Start | Empty board, 12 gold. Buy your first items on Day 1. |
+| Shop rank | Rank = day + bonuses (Guild Charter). Rarity odds per rank in `RANK_ODDS`: 100% Common at rank 1, capping at 10/35/35/20 from rank 10. |
+| Sales / discounts | 8% of item offers are half price (`SALE_CHANCE`). Coupon Book takes a flat amount off item offers (min 1). |
 | Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
 | HP curve | Base max HP grows 12% a day: 40, 45, 50, 56 … 111 on Day 10, 156 on Day 13 (`HP_BASE`, `HP_GROWTH`). |

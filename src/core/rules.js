@@ -76,11 +76,8 @@ export const HP_BASE = 40, HP_GROWTH = 1.12;
 export const maxHp = day => Math.round(HP_BASE * HP_GROWTH ** (day - 1));
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 
-export function starterBoard() {
-  const d = newInst('dagger'); d.x = 0; d.y = 1;
-  const b = newInst('buckler'); b.x = 2; b.y = 0;
-  return [d, b];
-}
+// Everyone starts with an empty board and buys their first items on Day 1.
+export function starterBoard() { return []; }
 
 // ---------- Gold after a fight (shared by the game and the bots) ----------
 // Daily income + gold items on the board + gold earned during the fight + artifacts.
@@ -113,30 +110,58 @@ export function afterFightGold({ board, artifacts = {}, day, won, gold = 0, batt
 }
 
 // ---------- Shop ----------
-export function rarityWeights(day) {
-  return {
-    common: Math.max(20, 80 - day * 7), rare: 20 + day * 2,
-    epic: day >= 3 ? (day - 2) * 5 : 0, legendary: day >= 5 ? (day - 4) * 3 : 0,
-  };
+// ---------- Shop rank ----------
+// Rank = day + bonuses from items on your board (e.g. Guild Charter). Each rank has fixed rarity
+// odds (percent): all Common at rank 1, shifting up until it caps at RANK_ODDS' last row.
+export const RANK_ODDS = [
+  //  common rare epic legendary
+  [100, 0, 0, 0],   // rank 1
+  [85, 15, 0, 0],   // 2
+  [70, 27, 3, 0],   // 3
+  [58, 32, 9, 1],   // 4
+  [46, 36, 14, 4],  // 5
+  [36, 38, 19, 7],  // 6
+  [28, 38, 24, 10], // 7
+  [21, 37, 28, 14], // 8
+  [15, 36, 32, 17], // 9
+  [10, 35, 35, 20], // 10+ (cap)
+];
+export const MAX_RANK = RANK_ODDS.length;
+export const shopRank = (day, board = []) =>
+  day + board.reduce((a, o) => a + (def(o).shopRank?.[o.level - 1] || 0), 0);
+export function rarityWeights(rank) {
+  const [common, rare, epic, legendary] = RANK_ODDS[Math.min(MAX_RANK, Math.max(1, rank)) - 1];
+  return { common, rare, epic, legendary };
 }
-export function rollRarity(day, rng) {
-  const w = rarityWeights(day);
+
+// ---------- Prices: sales and discounts ----------
+export const SALE_CHANCE = 0.08; // an item offer is sometimes half price
+export const shopDiscount = (board = []) => board.reduce((a, o) => a + (def(o).discount?.[o.level - 1] || 0), 0);
+// What an offer costs right now (discount items only affect item offers).
+export function offerPrice(o, board = []) {
+  if (o.kind !== 'item') return o.price;
+  const base = o.sale ? Math.ceil(o.price / 2) : o.price;
+  return Math.max(1, base - shopDiscount(board));
+}
+
+export function rollRarity(rank, rng) {
+  const w = rarityWeights(rank);
   let t = rng.next() * Object.values(w).reduce((a, b) => a + b, 0);
   for (const [k, v] of Object.entries(w)) if ((t -= v) < 0) return k;
   return 'common';
 }
-export function rollItemId(day, rng) {
-  const r = rollRarity(day, rng);
+export function rollItemId(rank, rng) {
+  const r = rollRarity(rank, rng);
   return rng.pick(Object.keys(ITEMS).filter(k => ITEMS[k].rarity === r));
 }
-export function rollShop(day, rng) {
+export function rollShop(day, rng, rank = day) {
   const offers = [];
   for (let i = 0; i < SHOP_ITEMS; i++) {
-    const level = day > 3 && rng.chance(Math.min(0.35, (day - 3) * 0.06)) ? 2 : 1;
-    const inst = newInst(rollItemId(day, rng), level);
+    const level = rank > 3 && rng.chance(Math.min(0.35, (rank - 3) * 0.06)) ? 2 : 1;
+    const inst = newInst(rollItemId(rank, rng), level);
     if (rng.chance(shinyChance(day))) inst.multicast += SHINY_BONUS;
     if (rng.chance(PREINFUSED_CHANCE)) inst.infusion = rollInfusion(rng);
-    offers.push({ kind: 'item', inst, price: priceOf(inst), sold: false });
+    offers.push({ kind: 'item', inst, price: priceOf(inst), sale: rng.chance(SALE_CHANCE), sold: false });
   }
   for (let i = 0; i < modOffers(day); i++) {
     const id = rollMod(rng);

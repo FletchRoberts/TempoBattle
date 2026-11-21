@@ -4,7 +4,7 @@ import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
   def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, modSlots, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
-  tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold,
+  tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, shopDiscount, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
@@ -34,7 +34,7 @@ function newRun() {
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
-  S.shop = rollShop(S.day, rng);
+  S.shop = rollShop(S.day, rng, shopRank(S.day, S.board));
   render();
 }
 
@@ -74,7 +74,7 @@ function advanceDay(result) {
   S.phase = S.artifactPicks ? 'artifact' : 'shop';
   // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
   const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
-  const fresh = rollShop(S.day, rng);
+  const fresh = rollShop(S.day, rng, shopRank(S.day, S.board));
   S.shop = [];
   for (const kind of ['item', 'mod', 'essence']) {
     const k = kept.filter(o => o.kind === kind), f = fresh.filter(o => o.kind === kind);
@@ -310,7 +310,7 @@ function modal(html, cls = '') {
 function showHelp() {
   const m = modal(`<h2>How to play</h2>
     <ol class="steps">
-      <li><b>Shop.</b> Click an item to buy it. It goes to your bench.</li>
+      <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity: all Common at rank 1, better items later. Now and then an item is on sale for half price.</li>
       <li><b>Place it.</b> Drag it onto the 3 × 10 grid. Press R while dragging, or use Rotate in the inspector, to turn it.</li>
       <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
       <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
@@ -365,17 +365,23 @@ function renderShop() {
   const left = el('div', 'col-main'), right = el('aside', 'col-side');
 
   const offers = el('section', 'panel offers');
-  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="hint">Click to buy. Drop an item on its twin to level it up.</span>`));
+  const rank = shopRank(S.day, S.board), odds = rarityWeights(rank), disc = shopDiscount(S.board);
+  const oddsHtml = Object.entries(odds).map(([r, p]) => `<span class="odd r-${r}" title="${RARITY[r].name}"><i style="width:${p}%"></i><b>${p}%</b> ${RARITY[r].name}</span>`).join('');
+  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="rank-chip" title="Rises by 1 each day. Items like Guild Charter raise it more.">Rank ${rank}${rank >= MAX_RANK ? ' · max odds' : ''}</span>
+    ${disc ? `<span class="chip">−${disc}g on items</span>` : ''}<span class="hint">Click to buy. Drop an item on its twin to level it up.</span>
+    <div class="odds" aria-label="Rarity odds at this rank">${oddsHtml}</div>`));
   const row = el('div', 'offer-row');
   S.shop.forEach((o, idx) => {
-    const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (o.price > S.gold && !o.sold ? ' poor' : ''));
+    const price = offerPrice(o, S.board);
+    const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (price > S.gold && !o.sold ? ' poor' : '') + (o.sale && !o.sold ? ' on-sale' : ''));
     c.type = 'button';
     if (o.kind === 'item') {
       const d = def(o.inst);
       c.classList.add('r-' + d.rarity);
       if (isShiny(o.inst)) c.classList.add('shiny');
       c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-meta"><b class="rar">${RARITY[d.rarity].name}</b> ${LV[o.inst.level - 1]}` +
-        `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}</span>`;
+        `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}` +
+        `${o.inst.infusion ? ` <b class="inf-tag" title="${INFUSIONS[o.inst.infusion].name}">${INFUSIONS[o.inst.infusion].icon} Infused</b>` : ''}</span>`;
       const shape = el('span', 'shape');
       shape.style.gridTemplateColumns = `repeat(${o.inst.w}, 8px)`;
       for (let k = 0; k < o.inst.w * o.inst.h; k++) shape.append(el('i'));
@@ -393,7 +399,8 @@ function renderShop() {
     }
     if (o.frozen && !o.sold) c.classList.add('was-frozen');
     if (S.frozen && !o.sold) c.classList.add('frozen');
-    c.append(el('span', 'price', o.sold ? 'Sold' : `${o.price}g`));
+    const full = o.kind === 'item' && price < o.price ? ` <s>${o.price}g</s>` : '';
+    c.append(el('span', 'price', o.sold ? 'Sold' : `${price}g${full}${o.sale ? ' <b class="sale-tag">½ price</b>' : ''}`));
     c.onclick = () => buy(idx);
     row.append(c);
   });
@@ -401,7 +408,7 @@ function renderShop() {
   const rc = currentRerollCost();
   const reroll = el('button', 'btn ghost', `Reroll · ${rc ? rc + 'g' : 'free'}`); reroll.type = 'button';
   reroll.disabled = S.gold < rc;
-  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng); render(); };
+  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng, shopRank(S.day, S.board)); render(); };
   const freeze = el('button', 'btn ghost freeze' + (S.frozen ? ' on' : ''), S.frozen ? '❄ Frozen' : 'Freeze shop'); freeze.type = 'button';
   freeze.setAttribute('aria-pressed', S.frozen);
   freeze.title = 'Keep the unsold offers for the next shop';
@@ -439,7 +446,7 @@ function renderShop() {
     stash.append(er);
   }
 
-  const fight = el('button', 'btn fight', `Find opponent <span>→</span>`); fight.type = 'button';
+  const fight = el('button', 'btn fight', S.board.length ? `Find opponent <span>→</span>` : 'Place an item to fight'); fight.type = 'button';
   fight.disabled = !S.board.length;
   fight.onclick = advancePhase;
 
@@ -524,12 +531,12 @@ function showInspector(target) {
 }
 
 function buy(idx) {
-  const o = S.shop[idx]; if (o.sold || S.gold < o.price) return;
+  const o = S.shop[idx], price = offerPrice(o, S.board); if (o.sold || S.gold < price) return;
   if (o.kind === 'item') {
     if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
     S.bench.push(o.inst);
   } else S.consumables.push(o.kind === 'mod' ? { kind: 'mod', id: o.id } : { kind: 'essence' });
-  S.gold -= o.price; o.sold = true; render();
+  S.gold -= price; o.sold = true; render();
 }
 function sellInst(inst) {
   S.gold += sellValue(inst);

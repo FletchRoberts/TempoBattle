@@ -361,3 +361,17 @@ button { font: inherit; color: inherit; }
 .pay li { display: flex; justify-content: space-between; gap: 12px; }
 .pay b { color: var(--accent); font-family: var(--f-mono); }
 .f-gold { color: var(--accent); }
+
+/* ---------- Shop rank, odds, sales ---------- */
+.rank-chip { font-family: var(--f-mono); font-size: 12px; padding: 2px 8px; border-radius: 3px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.odds { flex-basis: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 4px; }
+.odd { position: relative; display: block; font-size: 11px; color: var(--muted); padding-top: 6px; }
+.odd i { position: absolute; top: 0; left: 0; height: 3px; border-radius: 2px; background: var(--r-common); }
+.odd::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--line); }
+.odd.r-rare i { background: var(--r-rare); } .odd.r-epic i { background: var(--r-epic); } .odd.r-legendary i { background: var(--r-legendary); }
+.odd i { z-index: 1; }
+.odd b { color: var(--fg); font-family: var(--f-mono); font-weight: 600; }
+.price s { color: var(--muted); font-size: 11px; }
+.sale-tag { font-size: 10px; color: var(--accent-ink); background: var(--c-regen); border-radius: 3px; padding: 0 4px; font-family: var(--f-body); }
+.offer.on-sale { box-shadow: inset 0 0 0 1px var(--c-regen); }
+.inf-tag { color: var(--c-mod); font-weight: 600; }

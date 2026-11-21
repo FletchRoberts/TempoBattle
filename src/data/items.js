@@ -197,6 +197,11 @@ export const ITEMS = {
   map:      { name: 'Treasure Map',  icon: '🗺️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
               map: { v: [3, 2, 2, 1] } },
 
+  // Shop helpers: work while on your board
+  charter:  { name: 'Guild Charter', icon: '📜', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+              shopRank: [1, 1, 2, 3] },
+  coupon:   { name: 'Coupon Book',   icon: '🏷️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+              discount: [1, 1, 2, 3] },
   // Hybrids: fight, and pay gold just for being on your board
   taxman:   { name: 'Tax Collector', icon: '💼', rarity: 'rare', w: 1, h: 1, tags: ['weapon', 'tool'],
               effects: { damage: [4, 6, 8, 11] }, gold: { when: 'fight', v: [1, 1, 2, 3] } },

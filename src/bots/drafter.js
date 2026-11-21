@@ -6,7 +6,7 @@ import { makeRng } from '../core/rng.js';
 import {
   START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rerollCost,
   canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
-  afterFightGold,
+  afterFightGold, shopRank, offerPrice,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 
@@ -178,7 +178,7 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
   const clone = () => ({ gold: st.gold, board: st.board.map(copyItem) });
   let cur = evalBoard(st.board);
   for (let rerolls = 0; ; rerolls++) {
-    const offers = rollShop(day, rng);
+    const offers = rollShop(day, rng, shopRank(day, st.board));
     for (;;) {
       let best = null;
       const consider = (trial, apply) => {
@@ -187,8 +187,8 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
         if (!best || sc > best.sc) best = { sc, trial, apply };
       };
       for (const o of offers) {
-        if (o.sold || o.price > st.gold) continue;
-        const trial = clone(); trial.gold -= o.price;
+        if (o.sold || offerPrice(o, st.board) > st.gold) continue;
+        const trial = clone(); trial.gold -= offerPrice(o, st.board);
         if (o.kind === 'essence') continue; // random outcome: handled after the simulated buys
         if (o.kind === 'mod') {
           for (const target of modTargets(trial.board, o.id, arch).slice(0, 2)) {
@@ -202,8 +202,8 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
       st.gold = best.trial.gold; st.board = best.trial.board; cur = best.sc; best.apply();
     }
     const wild = offers.find(o => o.kind === 'essence' && !o.sold);
-    if (wild && st.gold >= wild.price + 3 && rng.chance(0.6) && useWildEssence(st.board, arch, rng)) {
-      st.gold -= wild.price; wild.sold = true; cur = evalBoard(st.board);
+    if (wild && st.gold >= offerPrice(wild, st.board) + 3 && rng.chance(0.6) && useWildEssence(st.board, arch, rng)) {
+      st.gold -= offerPrice(wild, st.board); wild.sold = true; cur = evalBoard(st.board);
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
     st.gold -= botRerollCost(st, rerolls);
@@ -212,7 +212,7 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
 
 function shopDay(st, day, arch, skill, rng) {
   for (let rerolls = 0; ; rerolls++) {
-    const offers = rollShop(day, rng).map(o => {
+    const offers = rollShop(day, rng, shopRank(day, st.board)).map(o => {
       if (o.kind === 'essence') return { o, s: 1 + rng.next() * skill.noise };
       if (o.kind === 'mod') return { o, s: modAppeal(o.id, arch) + rng.next() * skill.noise };
       const twin = st.board.some(b => canMerge(b, o.inst));
@@ -220,14 +220,15 @@ function shopDay(st, day, arch, skill, rng) {
     }).sort((a, b) => b.s - a.s);
 
     for (const { o, s } of offers) {
-      if (o.price > st.gold || s < 0.8) continue;
-      if (o.kind === 'essence') { if (useWildEssence(st.board, arch, rng)) st.gold -= o.price; continue; }
+      if (offerPrice(o, st.board) > st.gold || s < 0.8) continue;
+      if (o.kind === 'essence') { if (useWildEssence(st.board, arch, rng)) st.gold -= offerPrice(o, st.board); continue; }
       if (o.kind === 'mod') {
         const target = modTargets(st.board, o.id, arch)[0];
-        if (target) { applyMod(target, o.id); st.gold -= o.price; }
+        if (target) { applyMod(target, o.id); st.gold -= offerPrice(o, st.board); }
         continue;
       }
-      if (acquire(st, o.inst, s, arch)) st.gold -= o.price;
+      const price = offerPrice(o, st.board); // before buying, in case the item itself changes prices
+      if (acquire(st, o.inst, s, arch)) st.gold -= price;
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
     st.gold -= botRerollCost(st, rerolls);
