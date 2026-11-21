@@ -19,7 +19,9 @@ let store, rng, S;
 export function startApp(poolStore) {
   store = poolStore;
   window.addEventListener('resize', () => { if (S.phase === 'pvp') CELL = setCell(); else render(); });
-  newRun();
+  window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  S = { phase: 'title' };
+  render();
 }
 
 // ===================== Run state =====================
@@ -124,11 +126,80 @@ function renderHud() {
       <div><dt>Lives</dt><dd class="hearts">${hearts}</dd></div>
       <div><dt>Max HP</dt><dd>${maxHp(S.day)}</dd></div>
       <div class="gold"><dt>Gold</dt><dd>${S.gold}</dd></div>
-    </dl>`;
+    </dl>
+    <div class="hud-btns"><button type="button" class="btn ghost sm" id="help-btn">How to play</button>
+      <button type="button" class="btn ghost sm" id="menu-btn">Menu</button></div>`;
+  $('#help-btn').onclick = showHelp;
+  $('#menu-btn').onclick = confirmLeave;
+}
+
+// ===================== Title, help, menu =====================
+const DEMO = [['dagger', 2, 0, 1, 1, 1, 0], ['buckler', 1, 1, 0, 1, 2, 0], ['torch', 1, 3, 2, 1, 1, 0], ['bellows', 1, 4, 2, 1, 1, 0],
+  ['spring', 1, 5, 0, 2, 2, 0], ['hourglass', 1, 7, 2, 1, 1, 0], ['sword', 3, 8, 1, 2, 1, 'fire']];
+function renderTitle() {
+  const v = $('#view'); v.innerHTML = ''; v.className = 'title';
+  const hero = el('section', 'title-hero');
+  hero.innerHTML = `<p class="eyebrow">Async PvP auto-battler</p>
+    <h1>Tempo<span>Forge</span></h1>
+    <p class="pitch">Arrange items on a timeline. A bar sweeps across and fires each one it reaches. Build in the shop, then fight another player's board from the same day.</p>`;
+  const demo = el('div', 'title-demo');
+  const tl = timeline(fromSnapshot(DEMO));
+  tl.grid.append(el('div', 'playhead demo-head'));
+  demo.append(tl.wrap);
+  const btns = el('div', 'title-btns');
+  const start = el('button', 'btn fight', 'Start run <span>→</span>'); start.type = 'button'; start.onclick = newRun;
+  const how = el('button', 'btn ghost', 'How to play'); how.type = 'button'; how.onclick = showHelp;
+  btns.append(start, how);
+  const facts = el('dl', 'title-facts', `<div><dt>Lives</dt><dd>${START_LIVES}</dd></div><div><dt>Wins to clear</dt><dd>${WINS_TO_CLEAR}</dd></div>
+    <div><dt>Opponents</dt><dd>Rated ${pct(MATCH_BAND[0])}–${pct(MATCH_BAND[1])}</dd></div>`);
+  hero.append(btns, facts);
+  v.append(hero, demo);
+  start.focus();
+}
+function closeModal() { const m = $('.modal.dismissable'); if (m) m.remove(); }
+function modal(html, cls = '') {
+  closeModal();
+  const m = el('div', 'modal dismissable');
+  m.innerHTML = `<div class="modal-card ${cls}" role="dialog" aria-modal="true">${html}</div>`;
+  m.addEventListener('click', e => { if (e.target === m) closeModal(); });
+  document.body.append(m);
+  return m;
+}
+function showHelp() {
+  const m = modal(`<h2>How to play</h2>
+    <ol class="steps">
+      <li><b>Shop.</b> Click an item to buy it. It goes to your bench.</li>
+      <li><b>Place it.</b> Drag it onto the 3 × 10 grid. Press R while dragging, or use Rotate in the inspector, to turn it.</li>
+      <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
+      <li><b>Combine.</b> Drop an item on an identical one of the same level to merge it up a level (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
+      <li><b>Infuse.</b> Buy an essence, click it, then click an item to add a second effect.</li>
+      <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
+      <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before you lose ${START_LIVES} lives.</li>
+    </ol>
+    <h3>Effects</h3>
+    <ul class="effects-key">
+      <li><b class="k-burn">Burn</b> hits every ${BURN_TICK}s, then drops by 1. Shield blocks it.</li>
+      <li><b class="k-poison">Poison</b> hits every 1s, ignores Shield and never fades.</li>
+      <li><b class="k-regen">Regen</b> heals every 1s. <b class="k-shield">Shield</b> absorbs damage first.</li>
+      <li><b class="k-storm">Storm</b> starts at ${OVERTIME}s and hits both sides harder and harder.</li>
+    </ul>
+    <button type="button" class="btn" id="help-close">Got it</button>`, 'help');
+  $('#help-close', m).onclick = closeModal;
+  $('#help-close', m).focus();
+}
+function confirmLeave() {
+  const m = modal(`<h2>Leave this run?</h2><p>Your progress in this run will be lost.</p>
+    <div class="modal-actions"><button type="button" class="btn ghost" id="stay">Keep playing</button>
+    <button type="button" class="btn" id="leave">Leave run</button></div>`);
+  $('#stay', m).onclick = closeModal;
+  $('#leave', m).onclick = () => { closeModal(); cancelAnimationFrame(raf); document.querySelector('.modal')?.remove(); S = { phase: 'title' }; render(); };
+  $('#stay', m).focus();
 }
 
 function render() {
   CELL = setCell();
+  $('#hud').hidden = S.phase === 'title';
+  if (S.phase === 'title') return renderTitle();
   renderHud();
   if (S.phase === 'shop') renderShop();
   else if (S.phase === 'encounter') renderEncounter();
@@ -259,7 +330,8 @@ function showInspector(target) {
     const up = inst.level < 4
       ? `<button type="button" class="btn" id="btn-up" ${S.gold < upgradeCost(inst) ? 'disabled' : ''}>Upgrade to ${LV[inst.level]} · ${upgradeCost(inst)}g</button>`
       : `<span class="chip">Max level</span>`;
-    actions = `<div class="ins-actions">${up}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
+    const rot = inst.w !== inst.h ? `<button type="button" class="btn ghost" id="btn-rot">Rotate</button>` : '';
+    actions = `<div class="ins-actions">${up}${rot}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
   }
   p.innerHTML = `<div class="ins-h r-${d.rarity}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name} <small>${LV[inst.level - 1]}</small></h3>
     <span class="chip rar">${RARITY[d.rarity].name}</span><span class="chip">${inst.w}×${inst.h}</span></div></div>
@@ -267,6 +339,11 @@ function showInspector(target) {
   const up = $('#btn-up', p), sl = $('#btn-sell', p);
   if (up) up.onclick = () => { const c = upgradeCost(inst); if (S.gold < c) return; S.gold -= c; inst.level++; render(); };
   if (sl) sl.onclick = () => sellInst(inst);
+  const rt = $('#btn-rot', p);
+  if (rt) rt.onclick = () => {
+    if (S.board.includes(inst) && !canPlace(S.board, inst.x, inst.y, inst.h, inst.w, inst.uid)) return toast('No room to rotate it here. Drag it somewhere with space first.');
+    [inst.w, inst.h] = [inst.h, inst.w]; render();
+  };
 }
 
 function buy(idx) {
@@ -515,7 +592,9 @@ function renderOver() {
   const v = $('#view'); v.className = 'over';
   const won = S.wins >= WINS_TO_CLEAR;
   v.innerHTML = `<section class="panel over-card"><h2>${won ? 'Run cleared' : 'Run over'}</h2>
-    <p>${S.wins} wins across ${S.day} days.</p><button type="button" class="btn fight" id="again">New run <span>→</span></button></section>`;
+    <p>${S.wins} wins across ${S.day} days.</p><button type="button" class="btn fight" id="again">New run <span>→</span></button>
+    <button type="button" class="btn ghost" id="to-title">Back to title</button></section>`;
+  $('#to-title').onclick = () => { S = { phase: 'title' }; render(); };
   v.querySelector('.over-card').append(historyPanel());
   $('#again').onclick = newRun;
 }
