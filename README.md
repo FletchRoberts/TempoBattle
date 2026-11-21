@@ -42,8 +42,11 @@ game skips straight to the fight for now.
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
 | Start | Empty board, 12 gold. Buy your first items on Day 1. |
-| Shop rank | Rank = day + bonuses (Guild Charter). Rarity odds per rank in `RANK_ODDS`: 100% Common at rank 1, capping at 10/35/35/20 from rank 10. |
-| Sales / discounts | 8% of item offers are half price (`SALE_CHANCE`). Coupon Book takes a flat amount off item offers (min 1). |
+| Rarity | Five tiers: Common (3g), Uncommon (5g), Rare (7g), Super Rare (10g), Legendary (15g). Price × level. |
+| Shop rank | Rank = day + Guild Charters bought. Rarity odds per rank in `RANK_ODDS`: 100% Common at rank 1, capping at 8/20/32/25/15 from rank 10. |
+| Sales | 8% of item offers are half price (`SALE_CHANCE`). |
+| Shop tokens | Like essences, occasional shop offers that act when bought (`SHOP_TOKENS`): Guild Charter (+1 shop rank for the run, 12% of shops), Coupon (−2g on item offers for the day, 15%). |
+| Moving items | Drag, or click to pick up and click to place. Placing on another item swaps them (it goes to your hand). Esc / right-click puts a held item back. |
 | Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
 | HP curve | Base max HP grows 12% a day: 40, 45, 50, 56 … 111 on Day 10, 156 on Day 13 (`HP_BASE`, `HP_GROWTH`). |

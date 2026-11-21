@@ -1,6 +1,6 @@
 // A bot that plays a whole run through the real shop rules and records its board each day.
 // Those daily boards seed the PvP opponent pool until real players fill it.
-import { MODIFIERS } from '../data/items.js';
+import { MODIFIERS, SHOP_TOKENS } from '../data/items.js';
 import { ARTIFACTS, ARTIFACT_DAYS, artifactEffects } from '../data/artifacts.js';
 import { makeRng } from '../core/rng.js';
 import {
@@ -10,7 +10,7 @@ import {
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 
-const POWER = { common: 1, rare: 1.7, epic: 2.4, legendary: 3.2 };
+const POWER = { common: 1, uncommon: 1.35, rare: 1.75, superrare: 2.4, legendary: 3.2 };
 // Items whose value depends on what sits next to / in line with them get placed last.
 const isSupport = inst => {
   const d = def(inst);
@@ -124,6 +124,17 @@ function acquire(st, inst, value, arch) {
 }
 
 const copyItem = o => ({ ...o, mods: [...(o.mods || [])] });
+// Shop tokens (Coupon, Guild Charter): bots buy Coupons when they can and Charters early on.
+function wantToken(o, st, day, rng) {
+  if (o.id === 'coupon') return st.gold >= o.price + 3;
+  return day <= 8 && st.gold >= o.price + 4 && rng.chance(0.6);
+}
+function buyToken(o, st) {
+  st.gold -= o.price; o.sold = true;
+  const t = SHOP_TOKENS[o.id];
+  if (t.rank) st.rankBonus += t.rank;
+  if (t.discount) st.coupon += t.discount;
+}
 const freeRerolls = st => artifactEffects(st.artifacts).freeRerolls || 0;
 const botRerollCost = (st, n) => (n < freeRerolls(st) ? 0 : rerollCost(n - freeRerolls(st)));
 
@@ -178,7 +189,8 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
   const clone = () => ({ gold: st.gold, board: st.board.map(copyItem) });
   let cur = evalBoard(st.board);
   for (let rerolls = 0; ; rerolls++) {
-    const offers = rollShop(day, rng, shopRank(day, st.board));
+    const offers = rollShop(day, rng, shopRank(day, st.rankBonus));
+    for (const o of offers) if (o.kind === 'token' && wantToken(o, st, day, rng)) buyToken(o, st);
     for (;;) {
       let best = null;
       const consider = (trial, apply) => {
@@ -187,9 +199,9 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
         if (!best || sc > best.sc) best = { sc, trial, apply };
       };
       for (const o of offers) {
-        if (o.sold || offerPrice(o, st.board) > st.gold) continue;
-        const trial = clone(); trial.gold -= offerPrice(o, st.board);
-        if (o.kind === 'essence') continue; // random outcome: handled after the simulated buys
+        if (o.sold || offerPrice(o, st.coupon) > st.gold) continue;
+        const trial = clone(); trial.gold -= offerPrice(o, st.coupon);
+        if (o.kind === 'essence' || o.kind === 'token') continue; // handled outside the simulated buys
         if (o.kind === 'mod') {
           for (const target of modTargets(trial.board, o.id, arch).slice(0, 2)) {
             const t2 = { gold: trial.gold, board: trial.board.map(copyItem) };
@@ -202,8 +214,8 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
       st.gold = best.trial.gold; st.board = best.trial.board; cur = best.sc; best.apply();
     }
     const wild = offers.find(o => o.kind === 'essence' && !o.sold);
-    if (wild && st.gold >= offerPrice(wild, st.board) + 3 && rng.chance(0.6) && useWildEssence(st.board, arch, rng)) {
-      st.gold -= offerPrice(wild, st.board); wild.sold = true; cur = evalBoard(st.board);
+    if (wild && st.gold >= offerPrice(wild, st.coupon) + 3 && rng.chance(0.6) && useWildEssence(st.board, arch, rng)) {
+      st.gold -= offerPrice(wild, st.coupon); wild.sold = true; cur = evalBoard(st.board);
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
     st.gold -= botRerollCost(st, rerolls);
@@ -212,7 +224,8 @@ function shopDaySimulated(st, day, arch, skill, rng, bench) {
 
 function shopDay(st, day, arch, skill, rng) {
   for (let rerolls = 0; ; rerolls++) {
-    const offers = rollShop(day, rng, shopRank(day, st.board)).map(o => {
+    const offers = rollShop(day, rng, shopRank(day, st.rankBonus)).map(o => {
+      if (o.kind === 'token') return { o, s: o.id === 'coupon' ? 100 : 1.5 * econWeight(day) + rng.next() * skill.noise };
       if (o.kind === 'essence') return { o, s: 1 + rng.next() * skill.noise };
       if (o.kind === 'mod') return { o, s: modAppeal(o.id, arch) + rng.next() * skill.noise };
       const twin = st.board.some(b => canMerge(b, o.inst));
@@ -220,14 +233,15 @@ function shopDay(st, day, arch, skill, rng) {
     }).sort((a, b) => b.s - a.s);
 
     for (const { o, s } of offers) {
-      if (offerPrice(o, st.board) > st.gold || s < 0.8) continue;
-      if (o.kind === 'essence') { if (useWildEssence(st.board, arch, rng)) st.gold -= offerPrice(o, st.board); continue; }
+      if (o.kind === 'token') { if (wantToken(o, st, day, rng)) buyToken(o, st); continue; }
+      if (offerPrice(o, st.coupon) > st.gold || s < 0.8) continue;
+      if (o.kind === 'essence') { if (useWildEssence(st.board, arch, rng)) st.gold -= offerPrice(o, st.coupon); continue; }
       if (o.kind === 'mod') {
         const target = modTargets(st.board, o.id, arch)[0];
-        if (target) { applyMod(target, o.id); st.gold -= offerPrice(o, st.board); }
+        if (target) { applyMod(target, o.id); st.gold -= offerPrice(o, st.coupon); }
         continue;
       }
-      const price = offerPrice(o, st.board); // before buying, in case the item itself changes prices
+      const price = offerPrice(o, st.coupon);
       if (acquire(st, o.inst, s, arch)) st.gold -= price;
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
@@ -239,10 +253,10 @@ function shopDay(st, day, arch, skill, rng) {
 // `bench(day)` (optional) returns opponent boards for simulated shopping; used when skill.lookahead > 0.
 export function draftRun({ arch, skill, seed, days = MAX_DAYS, bench = null }) {
   const rng = makeRng(seed);
-  const st = { gold: START_GOLD, board: starterBoard(), artifacts: {} };
+  const st = { gold: START_GOLD, board: starterBoard(), artifacts: {}, rankBonus: 0, coupon: 0 };
   const snaps = [];
   for (let day = 1; day <= days; day++) {
-    curDay = day;
+    curDay = day; st.coupon = 0;
     let picks = day % ARTIFACT_DAYS === 0 ? 1 : 0;
     if (day > 1) { // bots don't really fight while drafting: assume a coin-flip result
       const p = afterFightGold({ board: st.board, artifacts: st.artifacts, day: day - 1, won: rng.chance(0.5),

@@ -1,5 +1,5 @@
 // Run rules, economy and board helpers. No DOM here: shared by the game, the bots and the Node tools.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, SHOP_TOKENS } from '../data/items.js';
 import { ARTIFACTS, artifactEffects } from '../data/artifacts.js';
 
 export const COLS = 10, ROWS = 3;
@@ -111,37 +111,36 @@ export function afterFightGold({ board, artifacts = {}, day, won, gold = 0, batt
 
 // ---------- Shop ----------
 // ---------- Shop rank ----------
-// Rank = day + bonuses from items on your board (e.g. Guild Charter). Each rank has fixed rarity
-// odds (percent): all Common at rank 1, shifting up until it caps at RANK_ODDS' last row.
+// Rank = day + Guild Charters bought. Each rank has fixed rarity odds (percent): all Common at
+// rank 1, shifting up until it caps at RANK_ODDS' last row.
+export const RARITIES = ['common', 'uncommon', 'rare', 'superrare', 'legendary'];
 export const RANK_ODDS = [
-  //  common rare epic legendary
-  [100, 0, 0, 0],   // rank 1
-  [85, 15, 0, 0],   // 2
-  [70, 27, 3, 0],   // 3
-  [58, 32, 9, 1],   // 4
-  [46, 36, 14, 4],  // 5
-  [36, 38, 19, 7],  // 6
-  [28, 38, 24, 10], // 7
-  [21, 37, 28, 14], // 8
-  [15, 36, 32, 17], // 9
-  [10, 35, 35, 20], // 10+ (cap)
+  // common uncommon rare superrare legendary
+  [100, 0, 0, 0, 0],   // rank 1
+  [80, 20, 0, 0, 0],   // 2
+  [62, 30, 8, 0, 0],   // 3
+  [48, 34, 15, 3, 0],  // 4
+  [36, 34, 21, 8, 1],  // 5
+  [27, 32, 25, 12, 4], // 6
+  [20, 29, 28, 16, 7], // 7
+  [14, 26, 30, 20, 10],// 8
+  [10, 23, 31, 23, 13],// 9
+  [8, 20, 32, 25, 15], // 10+ (cap)
 ];
 export const MAX_RANK = RANK_ODDS.length;
-export const shopRank = (day, board = []) =>
-  day + board.reduce((a, o) => a + (def(o).shopRank?.[o.level - 1] || 0), 0);
+export const shopRank = (day, bonus = 0) => day + bonus;
 export function rarityWeights(rank) {
-  const [common, rare, epic, legendary] = RANK_ODDS[Math.min(MAX_RANK, Math.max(1, rank)) - 1];
-  return { common, rare, epic, legendary };
+  const row = RANK_ODDS[Math.min(MAX_RANK, Math.max(1, rank)) - 1];
+  return Object.fromEntries(RARITIES.map((r, i) => [r, row[i]]));
 }
 
-// ---------- Prices: sales and discounts ----------
+// ---------- Prices: sales and coupons ----------
 export const SALE_CHANCE = 0.08; // an item offer is sometimes half price
-export const shopDiscount = (board = []) => board.reduce((a, o) => a + (def(o).discount?.[o.level - 1] || 0), 0);
-// What an offer costs right now (discount items only affect item offers).
-export function offerPrice(o, board = []) {
+// What an offer costs right now; `discount` (from Coupons) only affects item offers.
+export function offerPrice(o, discount = 0) {
   if (o.kind !== 'item') return o.price;
   const base = o.sale ? Math.ceil(o.price / 2) : o.price;
-  return Math.max(1, base - shopDiscount(board));
+  return Math.max(1, base - discount);
 }
 
 export function rollRarity(rank, rng) {
@@ -168,6 +167,7 @@ export function rollShop(day, rng, rank = day) {
     offers.push({ kind: 'mod', id, price: MODIFIERS[id].price, sold: false });
   }
   if (rng.chance(WILD_ESSENCE_CHANCE)) offers.push({ kind: 'essence', price: WILD_ESSENCE.price, sold: false });
+  for (const [id, t] of Object.entries(SHOP_TOKENS)) if (rng.chance(t.chance)) offers.push({ kind: 'token', id, price: t.price, sold: false });
   return offers;
 }
 

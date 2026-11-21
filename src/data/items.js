@@ -2,10 +2,11 @@
 // Every stat array has 4 entries, one per item level (I, II, III, IV).
 
 export const RARITY = {
-  common:    { name: 'Common',    price: 3 },
-  rare:      { name: 'Rare',      price: 6 },
-  epic:      { name: 'Epic',      price: 10 },
-  legendary: { name: 'Legendary', price: 15 },
+  common:    { name: 'Common',     price: 3 },
+  uncommon:  { name: 'Uncommon',   price: 5 },
+  rare:      { name: 'Rare',       price: 7 },
+  superrare: { name: 'Super Rare', price: 10 },
+  legendary: { name: 'Legendary',  price: 15 },
 };
 
 export const TAG_NAME = {
@@ -71,6 +72,13 @@ export const SPECIALS = {
 // Infusions ("instilling" an item with another type). Adds a stat that scales with level, plus the tag.
 // They're rare: an item sometimes rolls in the shop already infused, or a Wild Essence (random type) shows up.
 export const WILD_ESSENCE = { name: 'Wild Essence', icon: '🔮', price: 5 };
+// Shop tokens: like essences, they sometimes show up as shop offers and take effect when bought.
+export const SHOP_TOKENS = {
+  charter: { name: 'Guild Charter', icon: '📜', price: 6, chance: 0.12, rank: 1,
+             text: 'Shop rank +1 for the rest of the run' },
+  coupon:  { name: 'Coupon', icon: '🏷️', price: 2, chance: 0.15, discount: 2,
+             text: 'Item offers cost 2 gold less for the rest of today (min 1)' },
+};
 export const INFUSIONS = {
   fire:   { name: 'Ember Essence',  icon: '🔥', tag: 'fire',   stat: 'burn',   v: [2, 3, 4, 6], price: 4 },
   poison: { name: 'Venom Essence',  icon: '☠️', tag: 'poison', stat: 'poison', v: [1, 1, 2, 3], price: 4 },
@@ -93,6 +101,8 @@ export const MODIFIERS = {
 
 // Optional `start`: effects/special that fire once when the battle begins, e.g.
 //   start: { effects: { shield: [..] }, special: { kind: 'haste', v: [..], dur: 4 } }
+// Rarity tiers: common, uncommon, rare, superrare, legendary. Section headers below are historical;
+// the `rarity` field on each item is what counts.
 // w = columns wide, h = rows tall. The bar triggers an item when it reaches the item's leftmost column.
 export const ITEMS = {
   // ---------- Common ----------
@@ -112,60 +122,60 @@ export const ITEMS = {
               effects: { damage: [12, 18, 26, 38] } },
   quicksilver:{ name: 'Quicksilver',  icon: '🌀', rarity: 'common', w: 1, h: 1, tags: ['time'],
               special: { kind: 'haste', v: [0.15, 0.2, 0.3, 0.4], dur: 2 } },
-  frost:    { name: 'Frost Shard',   icon: '❄️', rarity: 'common', w: 1, h: 1, tags: ['time', 'weapon'],
+  frost:    { name: 'Frost Shard',   icon: '❄️', rarity: 'uncommon', w: 1, h: 1, tags: ['time', 'weapon'],
               effects: { damage: [2, 3, 4, 6] }, special: { kind: 'slow', v: [0.15, 0.2, 0.25, 0.35], dur: 2 } },
   flask:    { name: 'Ember Flask',   icon: '🍶', rarity: 'common', w: 1, h: 1, tags: ['fire'],
               effects: { burn: [1, 1, 2, 3] }, start: { effects: { burn: [4, 6, 8, 11] } } },
   totem:    { name: 'Ward Totem',    icon: '🗿', rarity: 'common', w: 1, h: 2, tags: ['shield'],
               effects: { shield: [3, 4, 6, 8] }, start: { effects: { shield: [10, 15, 21, 30] } } },
 
-  // ---------- Rare ----------
-  axe:      { name: 'Ember Axe',     icon: '🪓', rarity: 'rare', w: 2, h: 1, tags: ['weapon', 'fire'],
+  // ---------- (formerly Rare) ----------
+  axe:      { name: 'Ember Axe',     icon: '🪓', rarity: 'uncommon', w: 2, h: 1, tags: ['weapon', 'fire'],
               effects: { damage: [7, 10, 14, 20], burn: [2, 3, 4, 6] } },
-  fang:     { name: 'Serpent Fang',  icon: '🐍', rarity: 'rare', w: 1, h: 1, tags: ['weapon', 'poison'],
+  fang:     { name: 'Serpent Fang',  icon: '🐍', rarity: 'uncommon', w: 1, h: 1, tags: ['weapon', 'poison'],
               effects: { damage: [3, 5, 7, 10], poison: [1, 2, 2, 3] } },
   bellows:  { name: 'Bellows',       icon: '🌬️', rarity: 'rare', w: 1, h: 1, tags: ['tool', 'fire'],
               special: { kind: 'buffAdj', tag: 'fire', stat: 'burn', v: [1, 2, 3, 4] } },
-  whetstone:{ name: 'Whetstone',     icon: '🪨', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
+  whetstone:{ name: 'Whetstone',     icon: '🪨', rarity: 'uncommon', w: 1, h: 1, tags: ['tool'],
               special: { kind: 'buffAdj', tag: 'weapon', stat: 'damage', v: [3, 4, 6, 9] } },
   spring:   { name: 'Healing Spring',icon: '⛲', rarity: 'rare', w: 2, h: 2, tags: ['heal', 'regen'],
               effects: { heal: [9, 13, 18, 26], regen: [1, 1, 2, 3] } },
   tower:    { name: 'Tower Shield',  icon: '🧱', rarity: 'rare', w: 1, h: 3, tags: ['shield'],
               effects: { shield: [16, 23, 32, 45] } },
-  hourglass:{ name: 'Hourglass',     icon: '⏳', rarity: 'rare', w: 1, h: 1, tags: ['time'],
+  hourglass:{ name: 'Hourglass',     icon: '⏳', rarity: 'uncommon', w: 1, h: 1, tags: ['time'],
               special: { kind: 'haste', v: [0.3, 0.45, 0.6, 0.8] } },
-  censer:   { name: 'Plague Censer', icon: '🏮', rarity: 'rare', w: 1, h: 2, tags: ['poison'],
+  censer:   { name: 'Plague Censer', icon: '🏮', rarity: 'uncommon', w: 1, h: 2, tags: ['poison'],
               effects: { poison: [2, 3, 4, 6] } },
 
   quickdraw:{ name: 'Quick Draw',    icon: '🏹', rarity: 'rare', w: 1, h: 1, tags: ['weapon', 'time'],
               effects: { damage: [5, 7, 10, 14] }, special: { kind: 'haste', v: [0.2, 0.25, 0.3, 0.4], dur: 2 } },
-  tar:      { name: 'Tar Pot',       icon: '🛢️', rarity: 'rare', w: 1, h: 1, tags: ['poison', 'time'],
+  tar:      { name: 'Tar Pot',       icon: '🛢️', rarity: 'uncommon', w: 1, h: 1, tags: ['poison', 'time'],
               effects: { poison: [1, 2, 2, 3] }, special: { kind: 'slow', v: [0.2, 0.25, 0.3, 0.4], dur: 2 } },
   horn:     { name: 'War Horn',      icon: '📯', rarity: 'rare', w: 1, h: 1, tags: ['time'],
               effects: { damage: [2, 3, 4, 6] }, start: { special: { kind: 'haste', v: [0.4, 0.5, 0.65, 0.8], dur: 4 } } },
   smoke:    { name: 'Smoke Bomb',    icon: '🌫️', rarity: 'rare', w: 1, h: 1, tags: ['tool', 'time'],
               effects: { shield: [2, 3, 4, 6] }, start: { special: { kind: 'slow', v: [0.4, 0.5, 0.6, 0.7], dur: 4 } } },
 
-  // ---------- Epic ----------
-  feather:  { name: 'Phoenix Feather',icon: '🪶', rarity: 'epic', w: 1, h: 1, tags: ['fire', 'heal'],
+  // ---------- (formerly Epic) ----------
+  feather:  { name: 'Phoenix Feather',icon: '🪶', rarity: 'superrare', w: 1, h: 1, tags: ['fire', 'heal'],
               effects: { heal: [5, 7, 10, 14], burn: [3, 4, 6, 8] } },
-  rewind:   { name: 'Rewind Clock',  icon: '🕰️', rarity: 'epic', w: 1, h: 1, tags: ['time'],
+  rewind:   { name: 'Rewind Clock',  icon: '🕰️', rarity: 'superrare', w: 1, h: 1, tags: ['time'],
               special: { kind: 'rewind', v: [1, 1, 2, 3] } },
-  chime:    { name: 'Echo Chime',    icon: '🔔', rarity: 'epic', w: 1, h: 1, tags: ['time'],
+  chime:    { name: 'Echo Chime',    icon: '🔔', rarity: 'superrare', w: 1, h: 1, tags: ['time'],
               special: { kind: 'echo', v: [1, 2, 2, 3] } },
-  alembic:  { name: 'Alchemist Kit', icon: '⚗️', rarity: 'epic', w: 2, h: 2, tags: ['poison', 'heal'],
+  alembic:  { name: 'Alchemist Kit', icon: '⚗️', rarity: 'superrare', w: 2, h: 2, tags: ['poison', 'heal'],
               effects: { cleanse: [2, 3, 4, 6], poison: [3, 4, 6, 8] } },
-  mirror:   { name: 'Aegis Mirror',  icon: '🪞', rarity: 'epic', w: 1, h: 2, tags: ['shield', 'weapon'],
+  mirror:   { name: 'Aegis Mirror',  icon: '🪞', rarity: 'superrare', w: 1, h: 2, tags: ['shield', 'weapon'],
               effects: { shield: [10, 14, 20, 28] }, special: { kind: 'bash', v: [0.3, 0.4, 0.5, 0.65] } },
-  crown:    { name: 'Ember Crown',   icon: '👑', rarity: 'epic', w: 1, h: 1, tags: ['fire'],
+  crown:    { name: 'Ember Crown',   icon: '👑', rarity: 'superrare', w: 1, h: 1, tags: ['fire'],
               effects: { burn: [2, 3, 4, 5] }, special: { kind: 'grow', stat: 'burn', v: [1, 1, 2, 3] } },
 
-  glacier:  { name: 'Glacier Bell',  icon: '🧊', rarity: 'epic', w: 1, h: 2, tags: ['shield', 'time'],
+  glacier:  { name: 'Glacier Bell',  icon: '🧊', rarity: 'superrare', w: 1, h: 2, tags: ['shield', 'time'],
               effects: { shield: [8, 11, 15, 21] }, special: { kind: 'slow', v: [0.3, 0.35, 0.45, 0.55], dur: 3 } },
-  banner:   { name: 'Tailwind Banner',icon: '🚩', rarity: 'epic', w: 1, h: 2, tags: ['time'],
+  banner:   { name: 'Tailwind Banner',icon: '🚩', rarity: 'superrare', w: 1, h: 2, tags: ['time'],
               effects: { heal: [4, 6, 8, 12] }, special: { kind: 'haste', v: [0.35, 0.45, 0.55, 0.7], dur: 3 },
               start: { special: { kind: 'haste', v: [0.35, 0.45, 0.55, 0.7], dur: 3 } } },
-  seed:     { name: 'Ancient Seed',  icon: '🌰', rarity: 'epic', w: 1, h: 1, tags: ['regen', 'heal'],
+  seed:     { name: 'Ancient Seed',  icon: '🌰', rarity: 'rare', w: 1, h: 1, tags: ['regen', 'heal'],
               effects: { heal: [3, 4, 6, 8] }, start: { effects: { regen: [2, 3, 4, 6] } } },
 
   // ---------- Legendary ----------
@@ -189,76 +199,71 @@ export const ITEMS = {
               gold: { when: 'fight', v: [1, 2, 3, 4] } },
   ledger:   { name: "Merchant's Ledger", icon: '📒', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
               gold: { when: 'win', v: [3, 4, 6, 8] } },
-  piggy:    { name: 'Piggy Bank',    icon: '🐷', rarity: 'rare', w: 1, h: 2, tags: ['tool'],
+  piggy:    { name: 'Piggy Bank',    icon: '🐷', rarity: 'uncommon', w: 1, h: 2, tags: ['tool'],
               gold: { when: 'fight', grow: true, v: [3, 5, 7, 10] } },
-  idol:     { name: 'Golden Idol',   icon: '🏺', rarity: 'epic', w: 1, h: 1, tags: ['tool', 'shield'],
+  idol:     { name: 'Golden Idol',   icon: '🏺', rarity: 'superrare', w: 1, h: 1, tags: ['tool', 'shield'],
               effects: { shield: [3, 4, 6, 8] }, gold: { when: 'fight', v: [3, 4, 6, 8] } },
   // map: after this many fights on your board it's used up and you choose an artifact.
   map:      { name: 'Treasure Map',  icon: '🗺️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
               map: { v: [3, 2, 2, 1] } },
 
-  // Shop helpers: work while on your board
-  charter:  { name: 'Guild Charter', icon: '📜', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
-              shopRank: [1, 1, 2, 3] },
-  coupon:   { name: 'Coupon Book',   icon: '🏷️', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
-              discount: [1, 1, 2, 3] },
   // Hybrids: fight, and pay gold just for being on your board
-  taxman:   { name: 'Tax Collector', icon: '💼', rarity: 'rare', w: 1, h: 1, tags: ['weapon', 'tool'],
+  taxman:   { name: 'Tax Collector', icon: '💼', rarity: 'uncommon', w: 1, h: 1, tags: ['weapon', 'tool'],
               effects: { damage: [4, 6, 8, 11] }, gold: { when: 'fight', v: [1, 1, 2, 3] } },
   clover:   { name: 'Lucky Clover',  icon: '🍀', rarity: 'common', w: 1, h: 1, tags: ['regen'],
               effects: { regen: [1, 1, 1, 2] }, gold: { when: 'fight', v: [1, 1, 2, 2] } },
-  caravan:  { name: 'Trade Caravan', icon: '🐫', rarity: 'epic', w: 2, h: 1, tags: ['heal', 'tool'],
+  caravan:  { name: 'Trade Caravan', icon: '🐫', rarity: 'rare', w: 2, h: 1, tags: ['heal', 'tool'],
               effects: { heal: [6, 8, 11, 15] }, gold: { when: 'fight', v: [2, 3, 4, 5] } },
   // Gold on trigger: `gold` effect, paid out after the fight (optional `goldCap` limits it per fight)
-  glove:    { name: 'Pickpocket Glove', icon: '🧤', rarity: 'common', w: 1, h: 1, tags: ['weapon'],
+  glove:    { name: 'Pickpocket Glove', icon: '🧤', rarity: 'uncommon', w: 1, h: 1, tags: ['weapon'],
               effects: { damage: [3, 4, 6, 8], gold: [1, 1, 1, 1] } },
   midas:    { name: 'Midas Hammer',  icon: '🔨', rarity: 'rare', w: 2, h: 1, tags: ['weapon'],
               effects: { damage: [8, 11, 16, 22], gold: [1, 1, 2, 2] } },
-  slots:    { name: 'Slot Machine',  icon: '🎰', rarity: 'epic', w: 1, h: 1, tags: ['tool'], multicast: 2,
+  slots:    { name: 'Slot Machine',  icon: '🎰', rarity: 'superrare', w: 1, h: 1, tags: ['tool'], multicast: 2,
               effects: { gold: [1, 1, 2, 2] } },
 
   // ---------- Row / column ----------
   drum:     { name: 'War Drum',      icon: '🥁', rarity: 'rare', w: 1, h: 1, tags: ['tool'],
               aura: { scope: 'column', stat: 'damage', v: [2, 3, 4, 6] } },
-  lamp:     { name: 'Oil Lamp',      icon: '🪔', rarity: 'rare', w: 1, h: 1, tags: ['fire', 'tool'],
+  lamp:     { name: 'Oil Lamp',      icon: '🪔', rarity: 'uncommon', w: 1, h: 1, tags: ['fire', 'tool'],
               aura: { scope: 'row', stat: 'burn', v: [1, 1, 2, 3] } },
-  watchtower:{ name: 'Watchtower',   icon: '🗼', rarity: 'epic', w: 1, h: 1, tags: ['shield'],
+  watchtower:{ name: 'Watchtower',   icon: '🗼', rarity: 'rare', w: 1, h: 1, tags: ['shield'],
               effects: { shield: [3, 4, 6, 8] }, aura: { scope: 'row', stat: 'shield', v: [3, 4, 6, 8] } },
   rat:      { name: 'Plague Rat',    icon: '🐀', rarity: 'rare', w: 1, h: 1, tags: ['poison'],
               effects: { poison: [1, 1, 2, 2] }, special: { kind: 'buffRow', stat: 'poison', v: [1, 1, 1, 2] } },
-  forge:    { name: 'Field Forge',   icon: '⚒️', rarity: 'epic', w: 1, h: 1, tags: ['tool', 'fire'],
+  forge:    { name: 'Field Forge',   icon: '⚒️', rarity: 'superrare', w: 1, h: 1, tags: ['tool', 'fire'],
               special: { kind: 'buffCol', stat: 'damage', v: [2, 3, 4, 6] } },
   baton:    { name: "Conductor's Baton", icon: '🪄', rarity: 'legendary', w: 1, h: 1, tags: ['time', 'tool'],
               aura: { scope: 'column', multicast: [1, 1, 1, 2] } },
 
   // ---------- Max HP ----------
-  locket:   { name: 'Heart Locket',  icon: '💖', rarity: 'common', w: 1, h: 1, tags: ['heal'],
+  locket:   { name: 'Heart Locket',  icon: '💖', rarity: 'uncommon', w: 1, h: 1, tags: ['heal'],
               effects: { heal: [2, 3, 4, 6] }, start: { effects: { maxhp: [8, 12, 18, 26] } } },
   trollblood:{ name: 'Troll Blood',  icon: '🩸', rarity: 'rare', w: 1, h: 1, tags: ['regen'],
               effects: { maxhp: [3, 4, 6, 8] } },
-  belt:     { name: "Giant's Belt",  icon: '🎗️', rarity: 'epic', w: 2, h: 1, tags: ['shield'],
+  belt:     { name: "Giant's Belt",  icon: '🎗️', rarity: 'superrare', w: 2, h: 1, tags: ['shield'],
               effects: { shield: [4, 6, 8, 11] }, start: { effects: { maxhp: [20, 30, 42, 60] } } },
 
   // ---------- Triggers: react to your other items ----------
   sparkplug:{ name: 'Spark Plug',    icon: '🔌', rarity: 'rare', w: 1, h: 1, tags: ['fire', 'tool'],
               on: { event: 'activate', scope: 'adjacent', effects: { burn: [1, 1, 2, 3] } } },
-  leech:    { name: 'Leech Jar',     icon: '🪱', rarity: 'rare', w: 1, h: 1, tags: ['poison', 'heal'],
+  leech:    { name: 'Leech Jar',     icon: '🪱', rarity: 'uncommon', w: 1, h: 1, tags: ['poison', 'heal'],
               on: { event: 'poison', effects: { heal: [2, 3, 4, 6] } } },
-  thorns:   { name: 'Thorn Mail',    icon: '🌵', rarity: 'epic', w: 1, h: 2, tags: ['shield', 'weapon'],
+  thorns:   { name: 'Thorn Mail',    icon: '🌵', rarity: 'superrare', w: 1, h: 2, tags: ['shield', 'weapon'],
               effects: { shield: [5, 7, 10, 14] }, on: { event: 'shield', effects: { damage: [3, 4, 6, 8] } } },
-  cinderward:{ name: 'Cinder Ward',  icon: '🔶', rarity: 'epic', w: 1, h: 1, tags: ['fire', 'shield'],
+  cinderward:{ name: 'Cinder Ward',  icon: '🔶', rarity: 'superrare', w: 1, h: 1, tags: ['fire', 'shield'],
               on: { event: 'burn', effects: { shield: [2, 3, 4, 6] } } },
   metronome:{ name: 'Metronome',     icon: '🎼', rarity: 'legendary', w: 1, h: 1, tags: ['time', 'weapon'],
               on: { event: 'activate', effects: { damage: [2, 3, 4, 6] } } },
 
   // ---------- Built-in multicast ----------
-  twinblades:{ name: 'Twin Blades',  icon: '✂️', rarity: 'common', w: 2, h: 1, tags: ['weapon'], multicast: 2,
+  twinblades:{ name: 'Twin Blades',  icon: '✂️', rarity: 'uncommon', w: 2, h: 1, tags: ['weapon'], multicast: 2,
               effects: { damage: [4, 6, 9, 13] } },
   crossbow: { name: 'Repeater Crossbow', icon: '🎯', rarity: 'rare', w: 1, h: 1, tags: ['weapon'], multicast: 3,
               effects: { damage: [2, 3, 4, 6] } },
-  sparks:   { name: 'Ember Sparks',  icon: '✨', rarity: 'rare', w: 1, h: 1, tags: ['fire'], multicast: 3,
+  sparks:   { name: 'Ember Sparks',  icon: '✨', rarity: 'uncommon', w: 1, h: 1, tags: ['fire'], multicast: 3,
               effects: { burn: [1, 1, 2, 2] } },
-  drip:     { name: 'Venom Drip',    icon: '💧', rarity: 'epic', w: 1, h: 1, tags: ['poison'], multicast: 3,
+  drip:     { name: 'Venom Drip',    icon: '💧', rarity: 'superrare', w: 1, h: 1, tags: ['poison'], multicast: 3,
               effects: { poison: [1, 1, 1, 2] } },
 
   // ---------- Auras: boost your other items by type or condition ----------
@@ -268,9 +273,9 @@ export const ITEMS = {
               effects: { damage: [3, 4, 6, 8] }, aura: { tag: 'weapon', stat: 'damage', v: [3, 4, 6, 8], cond: 'enemySlowed' } },
   lastlight:{ name: 'Last Light',    icon: '🔦', rarity: 'rare', w: 1, h: 1, tags: ['heal'],
               aura: { tag: 'heal', stat: 'heal', v: [3, 4, 6, 8], cond: 'selfBelowHalf' } },
-  brimstone:{ name: 'Brimstone Altar', icon: '🌋', rarity: 'epic', w: 1, h: 2, tags: ['fire'],
+  brimstone:{ name: 'Brimstone Altar', icon: '🌋', rarity: 'superrare', w: 1, h: 2, tags: ['fire'],
               effects: { burn: [2, 3, 4, 5] }, aura: { tag: 'fire', stat: 'burn', v: [1, 1, 2, 3] } },
-  mask:     { name: 'Plague Mask',   icon: '🎭', rarity: 'epic', w: 1, h: 1, tags: ['poison'],
+  mask:     { name: 'Plague Mask',   icon: '🎭', rarity: 'superrare', w: 1, h: 1, tags: ['poison'],
               aura: { tag: 'poison', stat: 'poison', v: [1, 1, 1, 2] } },
   headsman: { name: "Headsman's Seal", icon: '⚖️', rarity: 'legendary', w: 1, h: 1, tags: ['weapon', 'tool'],
               aura: { tag: 'weapon', stat: 'damage', v: [0.5, 0.6, 0.8, 1], pct: true, cond: 'enemyBelowHalf' } },

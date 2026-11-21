@@ -1,10 +1,10 @@
 // Browser UI: shop, drag and drop, PvP battle playback. All rules come from src/core.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE, SHOP_TOKENS } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
   def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, modSlots, canApplyMod, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
-  tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, shopDiscount, MAX_RANK,
+  tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, HEAL_CLEANSE } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
@@ -30,11 +30,11 @@ function newRun() {
   rng = makeRng(Date.now());
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
-    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, artifacts: {}, artifactPicks: 0,
+    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, artifacts: {}, artifactPicks: 0, rankBonus: 0, coupon: 0, hand: null,
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
-  S.shop = rollShop(S.day, rng, shopRank(S.day, S.board));
+  S.shop = rollShop(S.day, rng, shopRank(S.day, S.rankBonus));
   render();
 }
 
@@ -69,14 +69,14 @@ function fightPayout(result, commit) {
 }
 function advanceDay(result) {
   S.gold += fightPayout(result, true).total;
-  S.day++; S.rerolls = 0;
+  S.day++; S.rerolls = 0; S.coupon = 0;
   if (S.day % ARTIFACT_DAYS === 0) S.artifactPicks++;
   S.phase = S.artifactPicks ? 'artifact' : 'shop';
   // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
   const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
-  const fresh = rollShop(S.day, rng, shopRank(S.day, S.board));
+  const fresh = rollShop(S.day, rng, shopRank(S.day, S.rankBonus));
   S.shop = [];
-  for (const kind of ['item', 'mod', 'essence']) {
+  for (const kind of ['item', 'mod', 'essence', 'token']) {
     const k = kept.filter(o => o.kind === kind), f = fresh.filter(o => o.kind === kind);
     S.shop.push(...k.map(o => ({ ...o, frozen: true })), ...f.slice(k.length));
   }
@@ -310,8 +310,8 @@ function modal(html, cls = '') {
 function showHelp() {
   const m = modal(`<h2>How to play</h2>
     <ol class="steps">
-      <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity: all Common at rank 1, better items later. Now and then an item is on sale for half price.</li>
-      <li><b>Place it.</b> Drag it onto the 3 × 10 grid. Press R while dragging, or use Rotate in the inspector, to turn it.</li>
+      <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity (Common, Uncommon, Rare, Super Rare, Legendary): all Common at rank 1, better items later. Now and then an item is half price, and sometimes a Guild Charter (+1 shop rank) or Coupon (cheaper items today) shows up.</li>
+      <li><b>Place it.</b> Click it to pick it up, then click a spot on the 3 × 10 grid (or drag it). Dropping it on another item swaps them. R or the Rotate button turns it; Esc puts it back.</li>
       <li><b>Mind the timing.</b> In a fight a bar sweeps left to right, ${COL_TIME}s per column, and fires each item when it reaches the item's left edge. Then it loops.</li>
       <li><b>Level up by merging.</b> Drop an item on an identical one of the same level, on the board or bench, to make one item a level higher (max IV). Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
@@ -365,14 +365,14 @@ function renderShop() {
   const left = el('div', 'col-main'), right = el('aside', 'col-side');
 
   const offers = el('section', 'panel offers');
-  const rank = shopRank(S.day, S.board), odds = rarityWeights(rank), disc = shopDiscount(S.board);
+  const rank = shopRank(S.day, S.rankBonus), odds = rarityWeights(rank), disc = S.coupon;
   const oddsHtml = Object.entries(odds).map(([r, p]) => `<span class="odd r-${r}" title="${RARITY[r].name}"><i style="width:${p}%"></i><b>${p}%</b> ${RARITY[r].name}</span>`).join('');
-  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="rank-chip" title="Rises by 1 each day. Items like Guild Charter raise it more.">Rank ${rank}${rank >= MAX_RANK ? ' · max odds' : ''}</span>
-    ${disc ? `<span class="chip">−${disc}g on items</span>` : ''}<span class="hint">Click to buy. Drop an item on its twin to level it up.</span>
+  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="rank-chip" title="Rises by 1 each day. Guild Charters raise it more.">Rank ${rank}${rank >= MAX_RANK ? ' · max odds' : ''}</span>
+    ${disc ? `<span class="chip">Coupon: −${disc}g on items today</span>` : ''}<span class="hint">Click to buy. Drop an item on its twin to level it up.</span>
     <div class="odds" aria-label="Rarity odds at this rank">${oddsHtml}</div>`));
   const row = el('div', 'offer-row');
   S.shop.forEach((o, idx) => {
-    const price = offerPrice(o, S.board);
+    const price = offerPrice(o, S.coupon);
     const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (price > S.gold && !o.sold ? ' poor' : '') + (o.sale && !o.sold ? ' on-sale' : ''));
     c.type = 'button';
     if (o.kind === 'item') {
@@ -392,6 +392,11 @@ function renderShop() {
       c.classList.add('mod');
       c.innerHTML = `<span class="o-ico">${m.icon}</span><span class="o-name">${m.name}</span><span class="o-meta">Modifier: ${m.stat ? `+${m.v} ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</span>`;
       c.onmouseenter = c.onfocus = () => showInspector({ mod: o.id });
+    } else if (o.kind === 'token') {
+      const t = SHOP_TOKENS[o.id];
+      c.classList.add('essence', 'token');
+      c.innerHTML = `<span class="o-ico">${t.icon}</span><span class="o-name">${t.name}</span><span class="o-meta">${t.text}</span>`;
+      c.onmouseenter = c.onfocus = () => showInspector({ token: o.id });
     } else {
       c.classList.add('essence');
       c.innerHTML = `<span class="o-ico">${WILD_ESSENCE.icon}</span><span class="o-name">${WILD_ESSENCE.name}</span><span class="o-meta">Random infusion</span>`;
@@ -408,7 +413,7 @@ function renderShop() {
   const rc = currentRerollCost();
   const reroll = el('button', 'btn ghost', `Reroll · ${rc ? rc + 'g' : 'free'}`); reroll.type = 'button';
   reroll.disabled = S.gold < rc;
-  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng, shopRank(S.day, S.board)); render(); };
+  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng, shopRank(S.day, S.rankBonus)); render(); };
   const freeze = el('button', 'btn ghost freeze' + (S.frozen ? ' on' : ''), S.frozen ? '❄ Frozen' : 'Freeze shop'); freeze.type = 'button';
   freeze.setAttribute('aria-pressed', S.frozen);
   freeze.title = 'Keep the unsold offers for the next shop';
@@ -418,7 +423,7 @@ function renderShop() {
   offers.append(acts);
 
   const boardP = el('section', 'panel board');
-  boardP.append(el('header', 'panel-h', `<h2>Your loadout</h2><span class="hint">Drag to place. Press R while dragging to rotate. The bar triggers an item at its left edge.</span>`));
+  boardP.append(el('header', 'panel-h', `<h2>Your loadout</h2><span class="hint">Click an item to pick it up, click again to place it (or drag). Dropping it on another item swaps them. R rotates, Esc puts it back.</span>`));
   const tl = timeline(S.board);
   boardP.append(tl.wrap);
   boardTarget = tl;
@@ -487,6 +492,12 @@ const findOwned = u => S.board.find(o => o.uid === u) || S.bench.find(o => o.uid
 
 function showInspector(target) {
   const p = $('.inspector'); if (!p) return;
+  if (target?.token) {
+    const t = SHOP_TOKENS[target.token];
+    p.innerHTML = `<div class="ins-h"><span class="ins-ico">${t.icon}</span><div><h3>${t.name}</h3><span class="chip">Shop token</span></div></div>
+      <p>${t.text}.</p><p class="muted">Takes effect as soon as you buy it.</p>`;
+    return;
+  }
   if (!target || (!target.inst && !target.essence && !target.mod)) {
     const pend = S.pending != null ? `<p class="callout">Click an item on your board or bench to use it on.</p>` : '';
     p.innerHTML = `<h3>Inspector</h3><p class="muted">Hover an item to see what it does. Click one of yours to rotate or sell it.</p>${pend}`;
@@ -531,14 +542,20 @@ function showInspector(target) {
 }
 
 function buy(idx) {
-  const o = S.shop[idx], price = offerPrice(o, S.board); if (o.sold || S.gold < price) return;
+  const o = S.shop[idx], price = offerPrice(o, S.coupon); if (o.sold || S.gold < price) return;
   if (o.kind === 'item') {
     if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
     S.bench.push(o.inst);
+  } else if (o.kind === 'token') {
+    const t = SHOP_TOKENS[o.id];
+    if (t.rank) S.rankBonus += t.rank;
+    if (t.discount) S.coupon += t.discount;
+    toast(`${t.name}: ${t.text}`);
   } else S.consumables.push(o.kind === 'mod' ? { kind: 'mod', id: o.id } : { kind: 'essence' });
   S.gold -= price; o.sold = true; render();
 }
 function sellInst(inst) {
+  if (S.hand === inst) S.hand = null;
   S.gold += sellValue(inst);
   S.board = S.board.filter(o => o !== inst); S.bench = S.bench.filter(o => o !== inst);
   if (S.selected === inst.uid) S.selected = null;
@@ -546,45 +563,107 @@ function sellInst(inst) {
 }
 function toast(msg) { const t = el('div', 'toast', msg); document.body.append(t); setTimeout(() => t.remove(), 2200); }
 
-// ===================== Drag & drop =====================
-let drag = null;
+// ===================== Drag & drop / pick up =====================
+// Drag an item, or click it to pick it up and click again to put it down. Putting it on another
+// item swaps them: the other item goes to your hand. Right-click or Esc puts a held item back.
+let drag = null; // { inst, node, from: 'board'|'bench'|'hand', held, moved, w, h, gx, gy, drop }
+let lastPtr = null;
 function bindDrag(root) {
   root.querySelectorAll('.grid .item, .bench .item').forEach(node => {
     node.addEventListener('pointerdown', ev => startDrag(ev, node));
     node.addEventListener('mouseenter', () => { const i = findOwned(+node.dataset.uid); if (i && !drag) showInspector({ inst: i, from: 'owned' }); });
   });
+  if (S.hand && !drag) resumeHand();
+}
+function listen(on) {
+  const f = on ? 'addEventListener' : 'removeEventListener';
+  window[f]('pointermove', onDragMove);
+  window[f]('keydown', onDragKey);
+  if (!on) {
+    window.removeEventListener('pointerup', onDragUp);
+    window.removeEventListener('pointerdown', onHeldDown, true);
+    window.removeEventListener('contextmenu', onHeldContext, true);
+  }
 }
 function startDrag(ev, node) {
-  if (ev.button !== 0) return;
+  if (ev.button !== 0 || drag) return;
   ev.preventDefault();
   const inst = findOwned(+node.dataset.uid); if (!inst) return;
   const r = node.getBoundingClientRect();
   const unit = S.board.includes(inst) ? CELL : r.width / inst.w;
-  drag = { inst, node, sx: ev.clientX, sy: ev.clientY, moved: false, w: inst.w, h: inst.h, drop: null,
+  drag = { inst, node, from: S.board.includes(inst) ? 'board' : 'bench', sx: ev.clientX, sy: ev.clientY,
+    moved: false, held: false, w: inst.w, h: inst.h, drop: null,
     gx: Math.min(inst.w - 1, Math.floor((ev.clientX - r.left) / unit)),
     gy: Math.min(inst.h - 1, Math.floor((ev.clientY - r.top) / unit)) };
-  window.addEventListener('pointermove', onDragMove);
-  window.addEventListener('pointerup', onDragEnd, { once: true });
-  window.addEventListener('keydown', onDragKey);
+  listen(true);
+  window.addEventListener('pointerup', onDragUp);
+}
+function holdMode() {
+  drag.held = drag.moved = true;
+  window.removeEventListener('pointerup', onDragUp);
+  window.addEventListener('pointerdown', onHeldDown, true);
+  window.addEventListener('contextmenu', onHeldContext, true);
+}
+function onDragUp(ev) {
+  if (!drag) return;
+  if (!drag.moved) {
+    if (S.pending != null) { const inst = drag.inst; endDrag(); return clickItem(inst); }
+    // Click without moving: pick it up. It follows the pointer until the next click.
+    holdMode();
+    drag.node?.classList.add('dragging'); makeGhost();
+    lastPtr = [ev.clientX, ev.clientY]; updateDrop(ev.clientX, ev.clientY);
+    S.selected = drag.inst.uid; showInspector({ inst: drag.inst, from: 'owned' });
+    return;
+  }
+  finishDrop();
+}
+function onHeldDown(ev) {
+  ev.preventDefault(); ev.stopPropagation();
+  window.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, { capture: true, once: true });
+  if (ev.button === 2) return cancelHeld();
+  lastPtr = [ev.clientX, ev.clientY];
+  updateDrop(ev.clientX, ev.clientY); finishDrop();
+}
+function onHeldContext(ev) { ev.preventDefault(); }
+function endDrag() { listen(false); drag = null; $('#drag-layer').replaceChildren(); }
+// Pick the item in S.hand back up after a re-render (e.g. right after a swap).
+function resumeHand() {
+  const inst = S.hand;
+  drag = { inst, node: null, from: 'hand', moved: true, held: true, w: inst.w, h: inst.h, gx: 0, gy: 0, drop: null };
+  listen(true); holdMode(); makeGhost();
+  if (lastPtr) updateDrop(...lastPtr);
+}
+function cancelHeld() {
+  const d = drag; endDrag();
+  if (d?.from === 'hand') {
+    if (S.bench.length < BENCH_MAX) { S.bench.push(d.inst); S.hand = null; }
+    else toast('Bench is full. Put the item somewhere first.');
+  }
+  render();
 }
 function makeGhost() {
   const g = itemEl({ ...drag.inst, w: drag.w, h: drag.h, x: -1 });
   g.classList.add('ghost'); $('#drag-layer').replaceChildren(g); drag.ghost = g;
 }
 function onDragKey(ev) {
-  if (!drag || ev.key.toLowerCase() !== 'r') return;
+  if (!drag) return;
+  if (ev.key === 'Escape' && drag.held) return cancelHeld();
+  if (ev.key.toLowerCase() !== 'r') return;
   [drag.w, drag.h] = [drag.h, drag.w];
   [drag.gx, drag.gy] = [Math.min(drag.gy, drag.w - 1), Math.min(drag.gx, drag.h - 1)];
-  if (drag.moved) { makeGhost(); updateDrop(drag.lx, drag.ly); }
+  if (drag.moved && lastPtr) { makeGhost(); updateDrop(...lastPtr); }
 }
 function onDragMove(ev) {
   if (!drag) return;
+  lastPtr = [ev.clientX, ev.clientY];
   if (!drag.moved && Math.hypot(ev.clientX - drag.sx, ev.clientY - drag.sy) < 6) return;
-  if (!drag.moved) { drag.moved = true; drag.node.classList.add('dragging'); makeGhost(); }
-  drag.lx = ev.clientX; drag.ly = ev.clientY;
+  if (!drag.moved) { drag.moved = true; drag.node?.classList.add('dragging'); makeGhost(); }
   updateDrop(ev.clientX, ev.clientY);
 }
+const overlapping = (board, x, y, w, h, ignore) =>
+  board.filter(o => o !== ignore && x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h);
 function updateDrop(px, py) {
+  if (!drag.ghost) return;
   drag.ghost.style.left = (px - (drag.gx + 0.5) * CELL) + 'px';
   drag.ghost.style.top = (py - (drag.gy + 0.5) * CELL) + 'px';
   const prev = boardTarget.ghost; prev.hidden = true; drag.drop = null;
@@ -608,22 +687,24 @@ function updateDrop(px, py) {
     return box(under.x, under.y, under.w, under.h, 'merge');
   }
   const x = cx - drag.gx, y = cy - drag.gy;
-  const ok = canPlace(S.board, x, y, drag.w, drag.h, drag.inst.uid);
-  box(x, y, drag.w, drag.h, ok ? 'ok' : 'bad');
-  if (ok) drag.drop = { kind: 'place', x, y };
+  if (canPlace(S.board, x, y, drag.w, drag.h, drag.inst.uid)) { box(x, y, drag.w, drag.h, 'ok'); drag.drop = { kind: 'place', x, y }; return; }
+  // Covering exactly one other item: swap it into your hand.
+  const hit = overlapping(S.board, x, y, drag.w, drag.h, drag.inst);
+  const rest = S.board.filter(o => o !== hit[0]);
+  if (hit.length === 1 && canPlace(rest, x, y, drag.w, drag.h, drag.inst.uid)) {
+    box(x, y, drag.w, drag.h, 'swap'); drag.drop = { kind: 'swap', x, y, target: hit[0] }; return;
+  }
+  box(x, y, drag.w, drag.h, 'bad');
 }
-function onDragEnd() {
-  window.removeEventListener('pointermove', onDragMove);
-  window.removeEventListener('keydown', onDragKey);
-  const d = drag; drag = null; $('#drag-layer').replaceChildren();
+function finishDrop() {
+  const d = drag; endDrag();
   if (!d) return;
-  if (!d.moved) return clickItem(d.inst);
-  const inst = d.inst, onBoard = S.board.includes(inst), drop = d.drop;
-  const remove = () => { S.board = S.board.filter(o => o !== inst); S.bench = S.bench.filter(o => o !== inst); };
-  if (!drop) return render();
-  if (drop.kind === 'sell') return sellInst(inst);
+  const inst = d.inst, drop = d.drop;
+  const remove = () => { S.board = S.board.filter(o => o !== inst); S.bench = S.bench.filter(o => o !== inst); if (S.hand === inst) S.hand = null; };
+  if (!drop) return render(); // a held item from the hand is picked back up by render()
+  if (drop.kind === 'sell') { if (S.hand === inst) { S.hand = null; S.bench.push(inst); } return sellInst(inst); }
   if (drop.kind === 'bench') {
-    if (onBoard) {
+    if (d.from !== 'bench') {
       if (S.bench.length >= BENCH_MAX) { toast('Bench is full.'); return render(); }
       remove(); inst.x = inst.y = -1; S.bench.push(inst);
     }
@@ -635,6 +716,11 @@ function onDragEnd() {
     return render();
   }
   remove(); Object.assign(inst, { x: drop.x, y: drop.y, w: d.w, h: d.h }); S.board.push(inst);
+  if (drop.kind === 'swap') {
+    const other = drop.target;
+    S.board = S.board.filter(o => o !== other);
+    S.hand = other; S.selected = other.uid;
+  }
   render();
 }
 function clickItem(inst) {
@@ -665,6 +751,11 @@ function renderEncounter() {
 // ===================== PvP battle =====================
 let ui = null, raf = 0, battleSpeed = 1;
 function startBattle() {
+  if (S.hand) { // put a held item away before fighting
+    if (drag) endDrag();
+    if (S.bench.length >= BENCH_MAX) { toast('Put the item in your hand somewhere first.'); return render(); }
+    S.bench.push(S.hand); S.hand = null;
+  }
   const opp = store.pick(S.day, rng, { runId: S.runId, faced: S.faced });
   S.opponent = opp; S.faced.add(opp.id);
   S.mySnapshot = snapshot(S.board);
