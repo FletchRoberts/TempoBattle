@@ -120,6 +120,10 @@ export const SKILLS = {
   goldtouch:  { name: 'Golden Touch', icon: '✋', rarity: 'superrare', text: 'Each of your gold-paying items pays {0} more after fights.', fx: [{ k: 'goldTouch', v: [2, 3] }] },
   vital:      { name: 'Vital Core', icon: '❤️‍🩹', rarity: 'superrare', text: '{0} max HP.', fx: [{ k: 'maxHp', v: 0.15 }] },
   shell:      { name: 'Thick Shell', icon: '🐢', rarity: 'superrare', text: 'Your Shield items give +{0} Shield.', fx: [{ k: 'flat', stat: 'shield', v: [60, 90] }] },
+  // late-game percentages: they keep up with big items where flat amounts fall behind
+  warlord:    { name: 'Warlord', icon: '🗡️', rarity: 'superrare', text: 'Your items deal {0} more damage.', fx: [{ k: 'pct', stat: 'damage', v: [0.2, 0.3] }] },
+  pyreheart:  { name: 'Pyre Heart', icon: '❤️‍🔥', rarity: 'superrare', text: 'Your Burn is {0} stronger.', fx: [{ k: 'pct', stat: 'burn', v: [0.25, 0.35] }] },
+  aegis:      { name: 'Aegis', icon: '🔰', rarity: 'superrare', text: 'Your Shield items give {0} more Shield.', fx: [{ k: 'pct', stat: 'shield', v: [0.25, 0.35] }] },
   desperation:{ name: 'Desperation', icon: '🔥', rarity: 'superrare', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'desperate', v: [70, 105] }] },
 
   // ---------- Legendary ----------
@@ -128,6 +132,9 @@ export const SKILLS = {
   beastlord:  { name: 'Beastlord', icon: '🦁', rarity: 'legendary', text: 'Your Beast items have +{0} multicast.', fx: [{ k: 'multicast', v: [1], cat: 'Beast' }] },
   mending:    { name: 'Mending Aura', icon: '💞', rarity: 'legendary', text: 'Your Heal items heal +{0} more and your Regen items give +{1} more Regen.', fx: [{ k: 'flat', stat: 'heal', v: [100] }, { k: 'flat', stat: 'regen', v: [12] }] },
   executioner:{ name: 'Executioner', icon: '🪓', rarity: 'legendary', text: 'Your items that deal damage deal +{0} damage.', fx: [{ k: 'flat', stat: 'damage', v: [90] }] },
+  apex:       { name: 'Apex', icon: '👑', rarity: 'legendary', text: 'All your items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: [0.25] }] },
+  plaguelord: { name: 'Plague Lord', icon: '☣️', rarity: 'legendary', text: 'Your Poison is {0} stronger.', fx: [{ k: 'pct', stat: 'poison', v: [0.4] }] },
+  sanctuary:  { name: 'Sanctuary', icon: '⛪', rarity: 'legendary', text: 'Your Heal, Regen and Shield are {0} stronger.', fx: [{ k: 'pct', stat: 'heal', v: [0.35] }, { k: 'pct', stat: 'regen', v: [0.35] }, { k: 'pct', stat: 'shield', v: [0.35] }] },
   legend:     { name: 'Living Legend', icon: '🌟', rarity: 'legendary', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'win', v: [15] }] },
 };
 
