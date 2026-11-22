@@ -107,7 +107,7 @@ export const SKILLS = {
   goldtouch:  { name: 'Golden Touch', icon: '✋', rarity: 'superrare', text: 'Each of your gold-paying items pays {0} more after fights.', fx: [{ k: 'goldTouch', v: [2, 3] }] },
   vital:      { name: 'Vital Core', icon: '❤️‍🩹', rarity: 'superrare', text: '{0} max HP.', fx: [{ k: 'maxHp', v: 0.15 }] },
   shell:      { name: 'Thick Shell', icon: '🐢', rarity: 'superrare', text: 'Your Shield items give {0} more Shield.', fx: [{ k: 'pct', stat: 'shield', v: 0.3 }] },
-  desperation:{ name: 'Desperation', icon: '🔥', rarity: 'superrare', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'desperate', v: [0.4, 0.6] }] },
+  desperation:{ name: 'Desperation', icon: '🔥', rarity: 'superrare', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'desperate', v: [0.3, 0.45] }] },
 
   // ---------- Legendary ----------
   timeheart:  { name: 'Heart of the Clock', icon: '🕰️', rarity: 'legendary', text: 'Your bar moves {0} faster.', fx: [{ k: 'speed', v: 0.2 }] },

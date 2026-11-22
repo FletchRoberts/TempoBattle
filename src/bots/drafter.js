@@ -274,7 +274,8 @@ export function draftRun({ arch, skill, seed, days = MAX_DAYS, bench = null }) {
       const p = afterFightGold({ board: st.board, skills: st.skills, day: day - 1, won,
         gold: st.gold, battleGold: estBattleGold(st.board) }, true);
       st.gold += p.total; st.board = p.board; st.picks.push(...p.skillPicks);
-      if (won) { st.wins++; st.streak++; } else { st.livesLost = Math.min(START_LIVES - 1, st.livesLost + lifeLoss(day - 1)); st.streak = 0; }
+      // A real run that's still going late has lives left, so ghosts never drop below 4.
+      if (won) { st.wins++; st.streak++; } else { st.livesLost = Math.min(START_LIVES - 4, st.livesLost + lifeLoss(day - 1)); st.streak = 0; }
     }
     const b = skill.lookahead && bench ? bench(day) : null;
     if (day === 1) chooseSkill(st, 'starter', day, arch, skill, rng, null); // starter skills shape the build
