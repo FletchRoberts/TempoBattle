@@ -244,7 +244,7 @@ export const ITEMS = {
   rootsplitter: { name: 'Rootsplitter', icon: '🌲', rarity: 'rare', w: 2, h: 1, cats: ['Flora', 'Melee'], tags: ['weapon', 'regen'], charge: 5,
       scale: [{ stat: 'damage', from: 'myRegen', v: [4.5, 6, 8] }] },
   maul: { name: 'Coal Maul', icon: '♨️', rarity: 'rare', w: 2, h: 1, cats: ['Melee', 'Hearth'], tags: ['weapon', 'fire'], charge: 5,
-      effects: { burn: [5, 7, 10] }, scale: [{ stat: 'damage', from: 'enemyBurn', v: [2.5, 3.5, 5.5] }] },
+      effects: { burn: [5, 7, 10] }, scale: [{ stat: 'damage', from: 'enemyBurn', v: [1.9, 2.6, 4.1] }] },
   // ---------- Super Rare (2 tiers) ----------
   horn: { name: 'War Horn', icon: '📯', rarity: 'superrare', w: 1, h: 1, cats: ['Herald'], tags: ['time'],
       effects: { damage: [21, 35] }, start: { special: { kind: 'haste', v: [0.3, 0.38], dur: 3 } } },
