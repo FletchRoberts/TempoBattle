@@ -123,7 +123,7 @@ export class Battle {
   activate(i, inst, bar) {
     const me = this.f[i], d = def(inst), L = inst.level - 1, sp = d.special;
     this.fx('activate', i, inst);
-    if (sp && sp.kind === 'amplify') return; // passive
+    if (sp && sp.kind === 'amplify') { this.fx('activated', i, inst); return; } // passive
     const st = this.computeStats(i, inst);
     if (st.gold) { // gold on trigger, capped per item per fight
       const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
@@ -132,6 +132,7 @@ export class Battle {
     }
     const events = this.applyStats(i, st, 1);
     if (sp) this.applySpecial(i, inst, sp, L, bar);
+    this.fx('activated', i, inst);
     events.add('activate');
     if (!this.depth) this.fireTriggers(i, inst, events);
   }
@@ -191,6 +192,7 @@ export class Battle {
       this.fx('activate', i, o);
       this.applyStats(i, st, 1);
       if (on.special) this.applySpecial(i, o, on.special, L, null);
+      this.fx('activated', i, o);
     }
     this.depth--;
   }
@@ -207,6 +209,7 @@ export class Battle {
       this.fx('activate', i, inst);
       this.applyStats(i, st, 1);
       if (s0.special) this.applySpecial(i, inst, s0.special, L, null);
+      this.fx('activated', i, inst);
     }
   }
   // Applies stats and returns which kinds of effect happened (for triggers).

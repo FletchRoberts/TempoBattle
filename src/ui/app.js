@@ -821,7 +821,7 @@ function renderBattle() {
   const v = $('#view'); v.innerHTML = ''; v.className = 'battle';
   const B = S.battle, o = S.opponent;
   const main = el('div', 'col-main'), side = el('aside', 'col-side');
-  ui = { sides: [] };
+  ui = { sides: [], src: [] };
   for (const i of [1, 0]) { // opponent on top
     const F = B.f[i];
     const panel = el('section', 'panel fighter' + (i ? ' is-enemy' : ''));
@@ -895,19 +895,49 @@ function updateBattle(acc) {
   }
   ui.clock.innerHTML = `<span>${B.t.toFixed(1)}s</span>` + (B.storm ? `<b>Storm ${B.storm}/hit</b>` : `<small>storm at ${OVERTIME}s</small>`);
 }
+// Damage/Burn/Poison fly from the item to the enemy's health bar; Heal/Shield/Regen fly to yours.
+const FLY = new Set(['damage', 'burn', 'poison', 'shield', 'heal', 'regen']);
+const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+function popFloat(side, text, cls) {
+  const box = $('.floats', ui.sides[side].head);
+  if (box.childElementCount > 14) box.firstChild.remove();
+  const f = el('span', 'float f-' + cls, text);
+  f.style.left = (8 + Math.random() * 70) + '%';
+  box.append(f); setTimeout(() => f.remove(), 1100);
+}
+function flyFloat(fromNode, side, text, cls) {
+  const a = fromNode.getBoundingClientRect(), bar = $('.hp', ui.sides[side].head).getBoundingClientRect();
+  const f = el('span', 'fly f-' + cls, text);
+  const x0 = a.left + a.width / 2, y0 = a.top + a.height / 2;
+  const x1 = bar.left + bar.width * (0.25 + Math.random() * 0.5), y1 = bar.top + bar.height / 2;
+  f.style.left = x0 + 'px'; f.style.top = y0 + 'px';
+  $('#fx-layer').append(f);
+  const dur = 620 / Math.sqrt(battleSpeed);
+  f.animate([
+    { transform: 'translate(-50%, -50%) scale(0.8)', opacity: 0 },
+    { transform: 'translate(-50%, -50%) scale(1.25)', opacity: 1, offset: 0.15 },
+    { transform: `translate(calc(-50% + ${x1 - x0}px), calc(-50% + ${y1 - y0}px)) scale(1)`, opacity: 1, offset: 0.85 },
+    { transform: `translate(calc(-50% + ${x1 - x0}px), calc(-50% + ${y1 - y0}px)) scale(0.7)`, opacity: 0 },
+  ], { duration: dur, easing: 'cubic-bezier(.3,.1,.3,1)' }).onfinish = () => { f.remove(); popFloat(side, text, cls); };
+}
 function onFx(type, i, a, b) {
   if (!ui) return;
   const U = ui.sides[i];
-  if (type === 'activate' || type === 'buff') {
+  if (type === 'activate') {
+    ui.src.push({ side: i, uid: a.uid });
     const n = U.items.get(a.uid); if (!n) return;
-    const c = type === 'activate' ? 'pulse' : 'buffed';
-    n.classList.remove(c); void n.offsetWidth; n.classList.add(c);
+    n.classList.remove('pulse'); void n.offsetWidth; n.classList.add('pulse');
+  } else if (type === 'activated') {
+    const k = ui.src.findLastIndex(x => x.side === i && x.uid === a.uid);
+    if (k >= 0) ui.src.length = k;
+  } else if (type === 'buff') {
+    const n = U.items.get(a.uid); if (!n) return;
+    n.classList.remove('buffed'); void n.offsetWidth; n.classList.add('buffed');
   } else if (type === 'float') {
-    const box = $('.floats', U.head);
-    if (box.childElementCount > 14) box.firstChild.remove();
-    const f = el('span', 'float f-' + b, a);
-    f.style.left = (8 + Math.random() * 70) + '%';
-    box.append(f); setTimeout(() => f.remove(), 1100);
+    const src = ui.src[ui.src.length - 1];
+    const node = src && ui.sides[src.side].items.get(src.uid);
+    if (node && FLY.has(b) && !reduceMotion() && document.querySelectorAll('.fly').length < 40) flyFloat(node, i, a, b);
+    else popFloat(i, a, b);
   }
 }
 function showResult(res) {

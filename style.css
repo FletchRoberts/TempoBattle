@@ -141,10 +141,10 @@ button { font: inherit; color: inherit; }
 .item.dragging { opacity: 0.3; }
 .item.ghost { position: fixed; z-index: 100; pointer-events: none; opacity: 0.85; }
 .item.pulse .flash { animation: pulse 0.45s ease-out; }
-.item.pulse { animation: bump 0.25s ease-out; }
+.item.pulse { animation: bump 0.34s ease-out; z-index: 6; }
 .item.buffed::before { animation: buff 0.6s ease-out; }
-@keyframes pulse { from { opacity: 0.55; } to { opacity: 0; } }
-@keyframes bump { 40% { transform: scale(1.07); } }
+@keyframes pulse { from { opacity: 0.7; } to { opacity: 0; } }
+@keyframes bump { 35% { transform: scale(1.18); filter: drop-shadow(0 0 10px var(--accent)) brightness(1.25); } }
 @keyframes buff { 30% { border-color: var(--c-regen); } }
 
 /* ---------- Bench / essences ---------- */
@@ -430,3 +430,9 @@ button { font: inherit; color: inherit; }
 .effects .fin { font-size: 14px; }
 .effects .base { color: var(--muted); font-family: var(--f-mono); font-size: 11px; margin-left: 4px; }
 .effects .s-tiers { list-style: none; margin-left: -16px; color: var(--muted); }
+
+/* ---------- Numbers flying from items to health bars ---------- */
+#fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 150; }
+.fly { position: fixed; font-family: var(--f-mono); font-weight: 700; font-size: 15px; white-space: nowrap; text-shadow: 0 1px 2px #000, 0 0 6px #000; will-change: transform, opacity; }
+.fly.f-damage { color: var(--c-damage); } .fly.f-burn { color: var(--c-fire); } .fly.f-poison { color: var(--c-poison); }
+.fly.f-heal { color: var(--c-heal); } .fly.f-shield { color: var(--c-shield); } .fly.f-regen { color: var(--c-regen); }
