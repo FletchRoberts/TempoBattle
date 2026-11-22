@@ -9,6 +9,10 @@ import {
 import { Fighter, Battle, previewStats, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
+// Matchmaking: you face boards rated inside your band. It starts at MATCH_BAND and every win moves it
+// up 5 points, every loss down 5, between 0–40% and 60–100%.
+const BAND_STEP = 0.05, BAND_WIDTH = MATCH_BAND[1] - MATCH_BAND[0], BAND_TOP = 1;
+const moveBand = (band, d) => { const lo = Math.round(Math.min(BAND_TOP - BAND_WIDTH, Math.max(0, band[0] + d)) * 100) / 100; return [lo, Math.round((lo + BAND_WIDTH) * 100) / 100]; };
 import { SKILLS, skillEffects, skillOffers, skillLevels, skillTier, maxSkillLevel, skillText } from '../data/skills.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -34,6 +38,8 @@ function newRun() {
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
+  S.band = [...MATCH_BAND];
+  store.prefetch(1);
   render();
 }
 // What "per win / per life lost / per gold" skills see right now.
@@ -78,6 +84,8 @@ function nextDay(result) {
   if (S.myWr == null) rateMyBoard(); // in case Continue was clicked before the rating finished
   S.history.push({ day: S.day, result, opponent: S.opponent.name, oppWr: S.opponent.wr, myWr: S.myWr });
   S.myWr = null;
+  if (result === 'win') S.band = moveBand(S.band, BAND_STEP);
+  if (result === 'loss') S.band = moveBand(S.band, -BAND_STEP);
   if (result === 'win') { S.wins++; S.streak++; }
   if (result === 'loss') { S.lives = Math.max(0, S.lives - lifeLoss(S.day)); S.livesLost += lifeLoss(S.day); S.streak = 0; }
   if (S.wins >= WINS_TO_CLEAR) { S.phase = 'over'; return render(); }
@@ -98,6 +106,7 @@ function fightPayout(result, commit) {
 function advanceDay(result) {
   S.gold += fightPayout(result, true).total;
   S.day++; S.rerolls = 0; S.upgradePick = null;
+  store.prefetch(S.day); // other players' boards for today's fight
   S.phase = 'shop';
   // A frozen shop keeps its unsold offers into the next day; the shop you pick fills the rest.
   S.kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
@@ -363,7 +372,7 @@ function renderTitle() {
   const how = el('button', 'btn ghost', 'How to play'); how.type = 'button'; how.onclick = showHelp;
   btns.append(start, how);
   const facts = el('dl', 'title-facts', `<div><dt>Lives</dt><dd>${START_LIVES}</dd></div><div><dt>Wins to clear</dt><dd>${WINS_TO_CLEAR}</dd></div>
-    <div><dt>Opponents</dt><dd>Rated ${pct(MATCH_BAND[0])}–${pct(MATCH_BAND[1])}</dd></div>`);
+    <div><dt>Opponents</dt><dd>Rated ${pct(MATCH_BAND[0])}–${pct(MATCH_BAND[1])}, then follow your results</dd></div>`);
   hero.append(btns, facts);
   v.append(hero, demo);
   start.focus();
@@ -580,10 +589,11 @@ function renderShop() {
 function historyPanel() {
   const p = el('section', 'panel history');
   p.append(el('h3', '', 'This run'));
-  if (!S.history.length) {
-    p.append(el('p', 'muted', `Each day you face another player's board from the same day. You're matched with boards that win ${pct(MATCH_BAND[0])}–${pct(MATCH_BAND[1])} of their fights against that day's field.`));
-    return p;
-  }
+  const shared = store.sharedCount(S.day);
+  const band = S.band || MATCH_BAND;
+  p.append(el('p', 'muted band-note', `Next opponent rated <b>${pct(band[0])}–${pct(band[1])}</b> (how often their board beats the day's field). Each win moves this up 5 points, each loss down 5.` +
+    (shared ? ` ${shared} board${shared > 1 ? 's' : ''} from other players today.` : '')));
+  if (!S.history.length) return p;
   const ol = el('ol', 'hist');
   ol.append(el('li', 'hist-head', '<span></span><span></span><span>Opponent · their rating</span><span>You</span>'));
   for (const h of S.history) ol.append(el('li', 'h-' + h.result, `<span>Day ${h.day}</span><b>${h.result}</b><span class="muted">${h.opponent} · ${pct(h.oppWr)}</span><span class="me">${h.myWr != null ? pct(h.myWr) : '–'}</span>`));
@@ -900,7 +910,7 @@ function startBattle() {
     if (S.bench.length >= BENCH_MAX) { toast('Put the item in your hand somewhere first.'); return render(); }
     S.bench.push(S.hand); S.hand = null;
   }
-  const opp = store.pick(S.day, rng, { runId: S.runId, faced: S.faced });
+  const opp = store.pick(S.day, rng, { runId: S.runId, faced: S.faced, band: S.band });
   S.opponent = opp; S.faced.add(opp.id);
   S.mySnapshot = snapshot(S.board);
   const hp = maxHp(S.day);
