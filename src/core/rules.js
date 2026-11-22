@@ -135,7 +135,7 @@ export const DAY_ODDS = [
   [9, [25, 32, 26, 13, 4]],
   [11, [18, 28, 29, 18, 7]],
 ];
-export const oddsBracket = (day, boost = 0) => Math.min(DAY_ODDS.length - 1, DAY_ODDS.findLastIndex(([d]) => day >= d) + boost);
+export const oddsBracket = (day, boost = 0) => Math.max(0, Math.min(DAY_ODDS.length - 1, DAY_ODDS.findLastIndex(([d]) => day >= d) + boost));
 export function rarityWeights(day, boost = 0) {
   const row = DAY_ODDS[oddsBracket(day, boost)][1];
   return Object.fromEntries(RARITIES.map((r, i) => [r, row[i]]));
@@ -174,6 +174,10 @@ export function rollOffer(day, rng, filter = () => true, boost = 0) {
 // ---------- Shop styles ----------
 // Each day you choose which shop to visit from 3 options. The shop's style holds for that day's
 // rerolls too. The better styles only turn up later in the run (`from` = first day).
+// An upgrade costs a copy of that tier plus a little for the freedom of choosing the item.
+export const upgradePrice = tier => RARITY[RARITIES[tier]].price + 2;
+// Your items a tier's upgrade could go on.
+export const upgradeTargets = (items, tier) => items.filter(o => tierIndex(o) === tier && o.level < maxLevel(o));
 export const shopBonus = day => Math.round(10 + 4 * day + 0.5 * day * day); // Armory / Bastion built-in bonus
 const hasStat = (id, k) => !!(ITEMS[id].effects?.[k] || ITEMS[id].scale?.some(x => x.stat === k));
 export const SHOP_STYLES = {
@@ -181,6 +185,7 @@ export const SHOP_STYLES = {
   category: { name: '{cat} Specialist', icon: '🏷️', from: 1, text: 'Only {cat} items.', filter: st => id => (ITEMS[id].cats || []).includes(st.cat) },
   small:    { name: 'Trinket Stall', icon: '🧿', from: 1, text: 'Only 1-cell items.', filter: () => id => ITEMS[id].w * ITEMS[id].h === 1 },
   large:    { name: 'Heavy Goods', icon: '🏗️', from: 2, text: 'Only items 2 cells or bigger.', filter: () => id => ITEMS[id].w * ITEMS[id].h >= 2 },
+  forge:    { name: 'Blacksmith', icon: '⚒️', from: 3, text: 'Upgrades instead of items: each raises one of your items of its rarity a tier.' },
   twins:    { name: 'Twin Peddler', icon: '👯', from: 3, text: 'Mostly copies of items you own, so merges come easy.' },
   clearance:{ name: 'Clearance Sale', icon: '💸', from: 3, text: 'Everything costs a third less.' },
   armory:   { name: 'Armory', icon: '⚔️', from: 4, bonus: 'damage', text: 'Only items that deal damage, each with +{bonus} Damage built in for good (more on slow items).', filter: () => id => hasStat(id, 'damage') },
@@ -198,7 +203,8 @@ function shopCats(day) {
 }
 // The 3 shops to choose from today. `owned`: your items (Twin Peddler needs something to copy).
 export function rollShopChoices(day, rng, owned = []) {
-  const ids = Object.keys(SHOP_STYLES).filter(k => SHOP_STYLES[k].from <= day && (k !== 'twins' || owned.length));
+  const upgradable = owned.some(o => o.level < maxLevel(o));
+  const ids = Object.keys(SHOP_STYLES).filter(k => SHOP_STYLES[k].from <= day && (!['twins', 'forge'].includes(k) || upgradable));
   const cats = rng.shuffle(shopCats(day));
   const picks = [];
   // categories are several shops in one, so they get two tickets
@@ -213,6 +219,22 @@ export function rollShopChoices(day, rng, owned = []) {
 export function rollShop(day, rng, style = { id: 'general' }, owned = []) {
   const S = SHOP_STYLES[style.id], filter = styleFilter(style);
   const copyable = owned.filter(o => o.level < maxLevel(o));
+  // Blacksmith: upgrade offers, each for one rarity ("raise one of your Common items to Uncommon").
+  // Only tiers you own show up, rolled with the odds of an earlier stage of the run, so an upgrade
+  // is rarer than an item of the same tier.
+  if (style.id === 'forge') {
+    const owned = [...new Set(copyable.map(tierIndex))];
+    const w = Object.values(rarityWeights(day, -1));
+    const pool = owned.filter(t => w[t] > 0);
+    if (!pool.length) pool.push(Math.min(...owned));
+    const offers = [];
+    for (let i = 0; i < SHOP_ITEMS && owned.length; i++) {
+      let r = rng.next() * pool.reduce((a, t) => a + (w[t] || 1), 0), tier = pool[0];
+      for (const t of pool) if ((r -= (w[t] || 1)) < 0) { tier = t; break; }
+      offers.push({ kind: 'upgrade', tier, price: upgradePrice(tier), sale: rng.chance(SALE_CHANCE), sold: false });
+    }
+    return offers;
+  }
   const offers = [];
   for (let i = 0; i < SHOP_ITEMS; i++) {
     const inst = style.id === 'twins' && copyable.length && rng.chance(0.4)

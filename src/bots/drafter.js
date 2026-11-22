@@ -4,7 +4,7 @@ import { ITEMS } from '../data/items.js';
 import { SKILLS, skillEffects, skillOffers, skillLevels, fxValue, PER } from '../data/skills.js';
 import { makeRng } from '../core/rng.js';
 import {
-  START_GOLD, START_LIVES, MAX_DAYS, lifeLoss, baseTier, topTier, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rollShopChoices, rerollCost,
+  START_GOLD, START_LIVES, MAX_DAYS, lifeLoss, baseTier, topTier, maxLevel, upgradeTargets, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rollShopChoices, rerollCost,
   canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp,
   afterFightGold, offerPrice, tierOf, isActive, chargeCost, CHARGE_DEFAULT, hasCat, perFireScale,
 } from '../core/rules.js';
@@ -137,6 +137,16 @@ function acquire(st, inst, value, arch) {
 }
 
 const copyItem = o => ({ ...o, mods: [...(o.mods || [])] });
+// A Blacksmith offer: raise your best item of its tier one tier (a skill pick, like any upgrade).
+// Only the arch matters for "best", so pass it along.
+function applyUpgrade(st, o, arch) {
+  const t = upgradeTargets(st.board, o.tier).sort((a, b) => itemValue(b, st.board, arch) - itemValue(a, st.board, arch))[0];
+  if (!t) return false;
+  (st.picks ||= []).push(tierOf(t)); t.level++;
+  for (let x; (x = st.board.find(b => canMerge(b, t)));) { st.picks.push(tierOf(t)); mergeInto(t, x); st.board.splice(st.board.indexOf(x), 1); }
+  return true;
+}
+const upgradeValue = (st, o, arch) => { const t = upgradeTargets(st.board, o.tier)[0]; return t ? itemValue({ ...t, level: t.level + 1 }, st.board, arch) : -1; };
 const freeRerolls = st => skillEffects(st.skills).freeRerolls || 0;
 const botRerollCost = (st, n) => (n < freeRerolls(st) ? 0 : rerollCost(n - freeRerolls(st)));
 // What this bot's "per win / per life lost / per gold" skills see right now.
@@ -197,6 +207,7 @@ function styleAppeal(style, st, arch, day) {
       return 0.4 + aff;
     }
     case 'twins': return 0.6 + 0.35 * Math.min(4, st.board.filter(o => o.level < 3).length);
+    case 'forge': return 0.8 + 0.3 * Math.min(5, st.board.filter(o => o.level < maxLevel(o)).length);
     case 'armory': return 0.9 + (arch.tags.weapon ?? 0.3) * 0.6;
     case 'bastion': return 0.9 + (arch.tags.shield ?? 0.3) * 0.6;
     default: return { general: 1, small: 0.8, large: 0.8, clearance: 1.5, curio: 1.7, infuser: 1.3, gilded: 1.5 }[style.id] ?? 1;
@@ -230,14 +241,14 @@ function shopDaySimulated(st, day, arch, skill, rng, bench, style) {
       for (const o of offers) {
         if (o.sold || offerPrice(o) > st.gold) continue;
         const trial = clone(); trial.gold -= offerPrice(o);
-        if (!acquire(trial, copyItem(o.inst), Infinity, arch)) continue;
+        if (o.kind === 'upgrade' ? !applyUpgrade(trial, o, arch) : !acquire(trial, copyItem(o.inst), Infinity, arch)) continue;
         arrange(trial.board, arch, rng);
         const sc = evalBoard(trial.board) + rng.next() * skill.noise * 0.05;
         if (!best || sc > best.sc) best = { sc, trial, o };
       }
       if (!best || best.sc <= cur + 0.005) break;
       st.gold = best.trial.gold; st.board = best.trial.board; (st.picks ||= []).push(...(best.trial.picks || [])); cur = best.sc;
-      best.o.sold = true; tel('bought', best.o.inst.id);
+      best.o.sold = true; if (best.o.kind === 'upgrade') tel('upgraded', 'tier' + best.o.tier); else tel('bought', best.o.inst.id);
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;
     st.gold -= botRerollCost(st, rerolls);
@@ -249,12 +260,14 @@ function shopDay(st, day, arch, skill, rng, style) {
     const rolled = rollShop(day, rng, style, st.board);
     telShop(rolled);
     const offers = rolled.map(o => {
+      if (o.kind === 'upgrade') return { o, s: upgradeValue(st, o, arch) + 1.5 + rng.next() * skill.noise };
       const twin = st.board.some(b => canMerge(b, o.inst));
       return { o, s: itemValue(o.inst, st.board, arch) + (twin ? 1.5 : 0) + rng.next() * skill.noise };
     }).sort((a, b) => b.s - a.s);
     for (const { o, s } of offers) {
       if (offerPrice(o) > st.gold || s < 0.8) continue;
       const price = offerPrice(o);
+      if (o.kind === 'upgrade') { if (applyUpgrade(st, o, arch)) { st.gold -= price; o.sold = true; tel('upgraded', 'tier' + o.tier); } continue; }
       if (acquire(st, o.inst, s, arch)) { st.gold -= price; tel('bought', o.inst.id); }
     }
     if (rerolls >= skill.rerolls + freeRerolls(st) || st.gold < botRerollCost(st, rerolls) + 3) break;

@@ -3,7 +3,7 @@ import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME,
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop, rollShopChoices, styleName, styleText, SHOP_STYLES, topTier,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop, rollShopChoices, styleName, styleText, SHOP_STYLES, topTier, upgradeTargets,
   tagsOf, statsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, rarityWeights, offerPrice, oddsBracket, DAY_ODDS,
 } from '../core/rules.js';
 import { Fighter, Battle, previewStats, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
@@ -20,7 +20,7 @@ let store, rng, S;
 export function startApp(poolStore) {
   store = poolStore;
   window.addEventListener('resize', () => { if (S.phase === 'pvp') CELL = setCell(); else render(); });
-  window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  window.addEventListener('keydown', e => { if (e.key !== 'Escape') return; closeModal(); if (S.upgradePick != null) { S.upgradePick = null; render(); } });
   S = { phase: 'title' };
   render();
 }
@@ -97,7 +97,7 @@ function fightPayout(result, commit) {
 }
 function advanceDay(result) {
   S.gold += fightPayout(result, true).total;
-  S.day++; S.rerolls = 0;
+  S.day++; S.rerolls = 0; S.upgradePick = null;
   S.phase = 'shop';
   // A frozen shop keeps its unsold offers into the next day; the shop you pick fills the rest.
   S.kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
@@ -158,7 +158,7 @@ const skillIcons = (ids, ctx) => Object.entries(skillLevels(ids || [])).map(([id
 // The first time you run out of lives you pick one rare boon and keep going on 1 life.
 const BOONS = [
   { id: 'legend', icon: '👑', name: 'Legend Reborn', text: 'Take a random Legendary item.',
-    apply() { const ids = Object.keys(ITEMS).filter(k => ITEMS[k].rarity === 'legendary'); S.bench.push(newInst(rng.pick(ids))); } },
+    apply() { const ids = Object.keys(ITEMS).filter(k => ITEMS[k].rarity === 'legendary'); gainItem(newInst(rng.pick(ids))); } },
   { id: 'shine', icon: '✨', name: 'Polished', text: 'Your most valuable board item becomes shiny: +1 multicast.',
     apply() { const best = [...S.board].sort((a, b) => priceOf(b) - priceOf(a))[0]; if (best) best.multicast += SHINY_BONUS; } },
   { id: 'vigor', icon: '❤️', name: 'Second Wind', text: '+15% max HP for the rest of the run.', apply() { S.bonusHpPct = (S.bonusHpPct || 0) + 0.15; } },
@@ -285,7 +285,8 @@ function refreshFinals() { FINALS = S?.board ? previewStats(S.board, S.skills ||
 
 function itemEl(inst, scale = 'cell') {
   const d = def(inst);
-  const e = el('div', `item r-${tierOf(inst)} t-${d.tags[0]}${isShiny(inst) ? ' shiny' : ''}`);
+  const e = el('div', `item r-${tierOf(inst)} t-${d.tags[0]}${isShiny(inst) ? ' shiny' : ''}${S?.glow === inst.uid ? ' merged' : ''}${S?.merging?.has(inst.uid) ? ' merging' : ''}` +
+    `${S?.upgradePick != null && S.shop?.[S.upgradePick] && upgradeTargets([inst], S.shop[S.upgradePick].tier).length ? ' upg-target' : ''}`);
   e.dataset.uid = inst.uid;
   e.style.width = `calc(var(--${scale}) * ${inst.w})`;
   e.style.height = `calc(var(--${scale}) * ${inst.h})`;
@@ -427,6 +428,51 @@ function render() {
   else renderOver();
 }
 
+// ===================== Merging =====================
+// You own at most one copy of an item per rarity: a copy you get lands on the bench and merges into
+// yours MERGE_DELAY later; the upgraded item then glows and grows for MERGE_SHOW before the skill
+// pick appears. Merges chain (a new Rare Dagger meets the Rare Dagger you had).
+const MERGE_DELAY = 500, MERGE_SHOW = 1000;
+let mergeBusy = 0;
+const owned = () => [...S.board, ...S.bench];
+// A bought or found item: merges into a twin if you have one, otherwise it waits on the bench.
+function gainItem(inst) {
+  const twin = owned().find(o => canMerge(o, inst));
+  S.bench.push(inst);
+  if (twin) scheduleMerge(twin, inst);
+  return !!twin;
+}
+function scheduleMerge(target, src) {
+  mergeBusy++; (S.merging ||= new Set()).add(src.uid);
+  setTimeout(() => {
+    mergeBusy--; S.merging?.delete(src.uid);
+    if (!S.board || S.phase !== 'shop') return;
+    if (S.hand === src) S.hand = null;
+    if (!owned().includes(target) || !owned().includes(src) || !canMerge(target, src)) { finishMerges(); return render(); }
+    S.board = S.board.filter(o => o !== src); S.bench = S.bench.filter(o => o !== src);
+    const tier = tierOf(target);
+    mergeInto(target, src);
+    showUpgrade(target, tier);
+  }, MERGE_DELAY);
+}
+// Glow + grow, then the skill pick (held back until any chained merges are done).
+function showUpgrade(target, pickTier) {
+  mergeBusy++; S.glow = target.uid; (S.heldPicks ||= []).push(pickTier);
+  toast(`${def(target).name} is now ${RARITY[tierOf(target)].name}!`);
+  render();
+  setTimeout(() => {
+    mergeBusy--; if (S.glow === target.uid) S.glow = null;
+    if (!S.board || S.phase !== 'shop') return;
+    const again = owned().find(o => canMerge(o, target));
+    if (again) scheduleMerge(target, again);
+    finishMerges(); render();
+  }, MERGE_SHOW);
+}
+function finishMerges() {
+  if (mergeBusy || !S.heldPicks?.length) return;
+  S.skillPicks.push(...S.heldPicks); S.heldPicks = [];
+}
+
 // ===================== Shop =====================
 let boardTarget = null;
 function renderShop() {
@@ -438,13 +484,26 @@ function renderShop() {
   const nextAt = DAY_ODDS[oddsBracket(S.day) + 1]?.[0];
   const oddsHtml = Object.entries(odds).map(([r, p]) => `<span class="odd r-${r}" title="${RARITY[r].name}"><i style="width:${p}%"></i><b>${p}%</b> ${RARITY[r].name}</span>`).join('');
   offers.append(el('header', 'panel-h', `<h2>${SHOP_STYLES[S.style.id].icon} ${styleName(S.style)}</h2><span class="rank-chip" title="${styleText(S.style, S.day)}">${styleText(S.style, S.day)}</span>
-    <span class="hint">Click to buy. Drop an item on its twin to level it up.${nextAt ? ` Rarer items from Day ${nextAt}.` : ''}</span>
-    <div class="odds" aria-label="Rarity odds today">${oddsHtml}</div>`));
+    <span class="hint">${S.upgradePick != null ? `<b class="pick-hint">⚒️ Click one of your ${RARITY[RARITIES[S.shop[S.upgradePick].tier]].name} items to upgrade it · Esc to cancel</b>` : `Click to buy. A copy of an item you own merges into it.${nextAt ? ` Rarer items from Day ${nextAt}.` : ''}`}</span>
+    ${S.style.id === 'forge' ? '' : `<div class="odds" aria-label="Rarity odds today">${oddsHtml}</div>`}`));
   const row = el('div', 'offer-row');
   S.shop.forEach((o, idx) => {
     const price = offerPrice(o);
     const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (price > S.gold && !o.sold ? ' poor' : '') + (o.sale && !o.sold ? ' on-sale' : ''));
     c.type = 'button';
+    if (o.kind === 'upgrade') {
+      const from = RARITY[RARITIES[o.tier]].name, to = RARITY[RARITIES[o.tier + 1]].name;
+      c.classList.add('upgrade', 'r-' + RARITIES[o.tier + 1]);
+      if (S.upgradePick === idx) c.classList.add('picking');
+      c.innerHTML = `<span class="o-ico">⚒️</span><span class="o-name">${from} Upgrade</span><span class="o-cats">Blacksmith</span>` +
+        `<span class="o-meta">Raise one of your <b class="tc-${RARITIES[o.tier]}">${from}</b> items to <b class="tc-${RARITIES[o.tier + 1]}">${to}</b></span>`;
+      c.onmouseenter = c.onfocus = () => showInspector({ upgrade: o });
+      const list = upgradePriceList(o);
+      c.append(el('span', 'price', o.sold ? 'Sold' : list));
+      c.onclick = () => buy(idx);
+      row.append(c);
+      return;
+    }
     const d = def(o.inst);
     c.classList.add('r-' + tierOf(o.inst));
     if (isShiny(o.inst)) c.classList.add('shiny');
@@ -508,7 +567,7 @@ function renderShop() {
 
   const fight = el('button', 'btn fight', S.board.length ? `Find opponent <span>→</span>` : 'Place an item to fight'); fight.type = 'button';
   fight.disabled = !S.board.length;
-  fight.onclick = advancePhase;
+  fight.onclick = () => { if (mergeBusy || S.heldPicks?.length) return toast('Finishing the upgrade…'); advancePhase(); };
 
   left.append(offers, boardP, stash);
   right.append(el('section', 'panel inspector'), fight, skillsPanel(), historyPanel(), el('section', 'panel rules', rulesHtml()));
@@ -548,6 +607,14 @@ const findOwned = u => S.board.find(o => o.uid === u) || S.bench.find(o => o.uid
 
 function showInspector(target) {
   const p = $('.inspector'); if (!p) return;
+  if (target?.upgrade) {
+    const o = target.upgrade, from = RARITY[RARITIES[o.tier]].name, to = RARITY[RARITIES[o.tier + 1]].name;
+    const ok = upgradeTargets(owned(), o.tier).map(x => `${def(x).icon} ${def(x).name}`).join(', ');
+    p.innerHTML = `<div class="ins-h r-${RARITIES[o.tier + 1]}"><span class="ins-ico">⚒️</span><div><h3>${from} Upgrade</h3><span class="chip">Blacksmith</span></div></div>
+      <p>Raise one of your ${from} items to ${to}. Like any upgrade, you also choose a ${from} skill.</p>
+      <p class="muted">${ok ? `Can upgrade: ${ok}` : `You have no ${from} item that can be upgraded.`}</p>`;
+    return;
+  }
   if (!target || (!target.inst && !target.essence && !target.mod)) {
     const pend = S.pending != null ? `<p class="callout">Click an item on your board or bench to use it on.</p>` : '';
     p.innerHTML = `<h3>Inspector</h3><p class="muted">Hover an item to see what it does. Click one of yours to rotate or sell it.</p>${pend}`;
@@ -578,7 +645,7 @@ function showInspector(target) {
     const up = top ? `<span class="chip">${tierOf(inst) === 'legendary' ? 'Legendary: top tier' : 'Max tier'}</span>` : '';
     mergeHint = top ? '' : `<p class="merge-hint">${twins
       ? `You own another ${cur} ${d.name}. Drop one onto the other to make it ${next}.`
-      : `Merge with another ${cur} ${d.name} to upgrade it to ${next}.`}</p>`;
+      : `Buy another ${cur} ${d.name} and it merges into this one, making it ${next}.`}</p>`;
     const rot = inst.w !== inst.h ? `<button type="button" class="btn ghost" id="btn-rot">Rotate</button>` : '';
     actions = `<div class="ins-actions">${up}${rot}<button type="button" class="btn ghost" id="btn-sell">Sell · ${sellValue(inst)}g</button></div>`;
   }
@@ -597,9 +664,28 @@ function showInspector(target) {
 function buy(idx) {
   const o = S.shop[idx], price = offerPrice(o);
   if (o.sold || S.gold < price) return;
-  if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
-  S.bench.push({ ...o.inst, mods: [...(o.inst.mods || [])], extra: o.inst.extra && { ...o.inst.extra } }); // a copy, so later merges don't change the sold card
-  S.gold -= price; o.sold = true; render();
+  if (o.kind === 'upgrade') {
+    if (S.upgradePick === idx) { S.upgradePick = null; return render(); }
+    const ok = upgradeTargets(owned(), o.tier);
+    if (!ok.length) return toast(`You have no ${RARITY[RARITIES[o.tier]].name} item that can be upgraded.`);
+    if (ok.length === 1) return doUpgrade(idx, ok[0]);
+    S.upgradePick = idx; S.selected = null; return render();
+  }
+  const copy = { ...o.inst, mods: [...(o.inst.mods || [])], extra: o.inst.extra && { ...o.inst.extra } }; // a copy, so later merges don't change the sold card
+  const twin = owned().some(x => canMerge(x, copy));
+  if (!twin && S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
+  S.gold -= price; o.sold = true;
+  gainItem(copy); render();
+}
+const upgradePriceList = o => `${offerPrice(o)}g${o.sale ? ` <s>${o.price}g</s> <b class="sale-tag">½ price</b>` : ''}`;
+// A Blacksmith upgrade on one of your items.
+function doUpgrade(idx, inst) {
+  const o = S.shop[idx], price = offerPrice(o);
+  if (o.sold || S.gold < price || tierIndex(inst) !== o.tier || inst.level >= maxLevel(inst)) return;
+  S.gold -= price; o.sold = true; S.upgradePick = null;
+  const tier = tierOf(inst);
+  inst.level++;
+  showUpgrade(inst, tier);
 }
 function sellInst(inst) {
   if (S.hand === inst) S.hand = null;
@@ -654,7 +740,7 @@ function holdMode() {
 function onDragUp(ev) {
   if (!drag) return;
   if (!drag.moved) {
-    if (S.pending != null) { const inst = drag.inst; endDrag(); return clickItem(inst); }
+    if (S.pending != null || S.upgradePick != null) { const inst = drag.inst; endDrag(); return clickItem(inst); }
     // Click without moving: pick it up. It follows the pointer until the next click.
     holdMode();
     drag.node?.classList.add('dragging'); makeGhost();
@@ -764,7 +850,7 @@ function finishDrop() {
     return render();
   }
   if (drop.kind === 'merge') {
-    S.skillPicks.push(tierOf(drop.target)); remove(); mergeInto(drop.target, inst);
+    const tier = tierOf(drop.target); remove(); mergeInto(drop.target, inst); showUpgrade(drop.target, tier);
     S.selected = drop.target.uid; toast(`${def(inst).name} upgraded to ${RARITY[tierOf(drop.target)].name}`);
     return render();
   }
@@ -777,6 +863,11 @@ function finishDrop() {
   render();
 }
 function clickItem(inst) {
+  if (S.upgradePick != null) {
+    const o = S.shop[S.upgradePick];
+    if (!upgradeTargets([inst], o.tier).length) { toast(`Pick one of your ${RARITY[RARITIES[o.tier]].name} items.`); return; }
+    return doUpgrade(S.upgradePick, inst);
+  }
   if (S.pending != null) {
     const c = S.consumables[S.pending];
     if (c.kind === 'mod') {
