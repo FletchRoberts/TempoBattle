@@ -409,3 +409,12 @@ button { font: inherit; color: inherit; }
 /* ---------- Categories ---------- */
 .tag.cat { color: var(--fg); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); text-transform: none; letter-spacing: 0.02em; font-size: 11px; }
 .o-cats { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
+
+/* ---------- Skills ---------- */
+.boon.skill.r-common { border-top-color: var(--r-common); } .boon.skill.r-uncommon { border-top-color: var(--r-uncommon); }
+.boon.skill.r-rare { border-top-color: var(--r-rare); } .boon.skill.r-superrare { border-top-color: var(--r-superrare); }
+.boon.skill.r-legendary { border-top-color: var(--r-legendary); } .boon.skill.r-starter { border-top-color: var(--accent); }
+.boon.skill .chip.rar { justify-self: start; }
+.art-list li.r-uncommon b { color: var(--r-uncommon); } .art-list li.r-rare b { color: var(--r-rare); }
+.art-list li.r-superrare b { color: var(--r-superrare); } .art-list li.r-legendary b { color: var(--r-legendary); }
+.art-list li.r-starter b { color: var(--accent); }

@@ -1,6 +1,6 @@
 // Run rules, economy and board helpers. No DOM here: shared by the game, the bots and the Node tools.
 import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, SHOP_TOKENS, STAT_WEIGHT } from '../data/items.js';
-import { ARTIFACTS, artifactEffects } from '../data/artifacts.js';
+import { SKILLS, skillEffects } from '../data/skills.js';
 
 // 3 x 5 board: little spare space, so weak items have to be swapped out rather than kept around.
 export const COLS = 5, ROWS = 3;
@@ -17,8 +17,7 @@ export const SHINY_PRICE_MULT = 2;
 // Augments are rare: pre-infused shop items and the occasional Wild Essence (random infusion).
 export const PREINFUSED_CHANCE = 0.08, PREINFUSED_SURCHARGE = 3;
 export const WILD_ESSENCE_CHANCE = 0.2;
-export const modOffers = day => (day >= 3 ? 2 : 1);   // modifier offers per shop
-export const LV = ['I', 'II', 'III', 'IV']; // artifact levels
+export const ECHO_RUNE_CHANCE = 0.06; // stat modifiers are gone (skills do that); the rare Echo Rune remains
 
 // Rarity tiers. An item's level is how many tiers it has climbed from its starting rarity:
 // a Common at level 3 is Rare. Legendary is the top, so Legendaries can't be upgraded.
@@ -32,7 +31,7 @@ export const tierOf = inst => RARITIES[tierIndex(inst)];
 // Passive items (only triggers, auras, gold, start effects or amplify) never charge.
 export const CHARGE_DEFAULT = 4;
 export const isActive = d => !!(d.effects && Object.keys(d.effects).length) || !!(d.special && d.special.kind !== 'amplify');
-// Flat bonuses (infusions, modifiers, flat auras, buffs, artifact adds) land every time an item fires,
+// Flat bonuses (infusions, modifiers, flat auras, buffs) land every time an item fires,
 // so they're scaled by how often it fires: a 2-charge item gets half, an 8-charge item double.
 // That keeps a +5 modifier worth the same per second on any item.
 export const perFireScale = inst => (isActive(ITEMS[inst.id]) ? chargeCost(inst) / CHARGE_DEFAULT : 1);
@@ -85,12 +84,6 @@ export function applyMod(inst, modId) {
   inst.mods = [...(inst.mods || []), modId];
   if (MODIFIERS[modId].multicast) inst.multicast += MODIFIERS[modId].multicast;
 }
-function rollMod(rng) {
-  const entries = Object.entries(MODIFIERS);
-  let t = rng.next() * entries.reduce((a, [, m]) => a + m.weight, 0);
-  for (const [k, m] of entries) if ((t -= m.weight) < 0) return k;
-  return entries[0][0];
-}
 export const rerollCost = n => 1 + n;
 // Max HP per day, calibrated by tools/calibrate-hp.js so a typical fight lasts ~18s on every day
 // (items scale up fast, so HP has to as well), then smoothed. Days past the end use the last value.
@@ -102,11 +95,11 @@ export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained afte
 export function starterBoard() { return []; }
 
 // ---------- Gold after a fight (shared by the game and the bots) ----------
-// Daily income + gold items on the board + gold earned during the fight + artifacts.
+// Daily income + gold items on the board + gold earned during the fight + skills.
 // With commit, also advances item counters (Piggy Bank, Treasure Map) and removes finished maps.
-export function afterFightGold({ board, artifacts = {}, day, won, gold = 0, battleGold = 0 }, commit = false) {
+export function afterFightGold({ board, skills = [], day, won, gold = 0, battleGold = 0 }, commit = false) {
   const lines = [['Daily income', income(day, won)]];
-  let artifactPicks = 0, keep = board;
+  const skillPicks = [], keep0 = board; let keep = keep0; // skillPicks: rarities of skill choices earned
   for (const inst of board) {
     const d = def(inst), L = inst.level - 1;
     if (d.gold && !(d.gold.when === 'win' && !won)) {
@@ -116,19 +109,19 @@ export function afterFightGold({ board, artifacts = {}, day, won, gold = 0, batt
     }
     if (d.map && commit) {
       inst.charge = (inst.charge || 0) + 1;
-      if (inst.charge >= d.map.v[L]) { keep = keep.filter(o => o !== inst); artifactPicks++; }
+      if (inst.charge >= d.map.v[L]) { keep = keep.filter(o => o !== inst); skillPicks.push(tierOf(inst)); }
     }
   }
   if (battleGold) lines.push(['Earned during the fight', battleGold]);
-  const A = artifactEffects(artifacts);
+  const A = skillEffects(skills);
   if (A.goldTouch) {
     const n = board.filter(o => def(o).gold && !(def(o).gold.when === 'win' && !won)).length;
-    if (n) lines.push([ARTIFACTS.goldtouch.name, n * A.goldTouch]);
+    if (n) lines.push([SKILLS.goldtouch.name, n * A.goldTouch]);
   }
-  if (A.gold) lines.push([ARTIFACTS.tithe.name, A.gold]);
-  if (A.bounty && won) lines.push([ARTIFACTS.bounty.name, A.bounty]);
-  if (A.interest) { const i = Math.min(A.interest, Math.floor(gold * 0.1)); if (i) lines.push([ARTIFACTS.interest.name, i]); }
-  return { total: lines.reduce((a, [, g]) => a + g, 0), lines, board: keep, artifactPicks };
+  if (A.gold) lines.push(['Skills', A.gold]);
+  if (A.bounty && won) lines.push([SKILLS.bounty.name, A.bounty]);
+  if (A.interest) { const i = Math.min(A.interest, Math.floor(gold * 0.1)); if (i) lines.push([SKILLS.interest.name, i]); }
+  return { total: lines.reduce((a, [, g]) => a + g, 0), lines, board: keep, skillPicks };
 }
 
 // ---------- Shop ----------
@@ -188,10 +181,7 @@ export function rollShop(day, rng, rank = day) {
     if (rng.chance(PREINFUSED_CHANCE)) inst.infusion = rollInfusion(rng);
     offers.push({ kind: 'item', inst, price: priceOf(inst), sale: rng.chance(SALE_CHANCE), sold: false });
   }
-  for (let i = 0; i < modOffers(day); i++) {
-    const id = rollMod(rng);
-    offers.push({ kind: 'mod', id, price: MODIFIERS[id].price, sold: false });
-  }
+  if (rng.chance(ECHO_RUNE_CHANCE)) offers.push({ kind: 'mod', id: 'echoRune', price: MODIFIERS.echoRune.price, sold: false });
   if (rng.chance(WILD_ESSENCE_CHANCE)) offers.push({ kind: 'essence', price: WILD_ESSENCE.price, sold: false });
   for (const [id, t] of Object.entries(SHOP_TOKENS)) if (rng.chance(t.chance)) offers.push({ kind: 'token', id, price: t.price, sold: false });
   return offers;
@@ -261,4 +251,4 @@ export const snapshot = board => board.map(o =>
   [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0, o.multicast || 1, o.mods?.length ? o.mods : 0]);
 export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf, mc, mods]) =>
   ({ uid: uid(), id, level: Math.min(level, RARITIES.length - baseTier(id)), x, y, w, h, infusion: inf || null,
-     multicast: mc || ITEMS[id].multicast || 1, mods: mods || [] }));
+     multicast: mc || ITEMS[id].multicast || 1, mods: (mods || []).filter(m => MODIFIERS[m]) }));

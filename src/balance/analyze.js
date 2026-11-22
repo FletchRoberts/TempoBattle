@@ -11,7 +11,7 @@
 // Suggestions move outliers toward their rarity tier's MEDIAN value per gold, never above it,
 // so balancing lifts the bottom and trims the top without power creep.
 import { ITEMS, RARITY } from '../data/items.js';
-import { ARTIFACTS } from '../data/artifacts.js';
+import { SKILLS } from '../data/skills.js';
 import { maxHp, fromSnapshot, RARITIES } from '../core/rules.js';
 import { duel, Battle, Fighter, OVERTIME } from '../core/sim.js';
 import { makeRng } from '../core/rng.js';
@@ -29,11 +29,11 @@ export function itemImpact(pool, { samples = 24, opps = 10, seed = 1, onProgress
   const days = Object.keys(pool.days).map(Number);
   const oppsByDay = {};
   for (const d of days) oppsByDay[d] = rng.shuffle([...pool.days[d]]).slice(0, opps)
-    .map(t => ({ id: t.id, items: fromSnapshot(t.items), artifacts: t.artifacts || {} }));
+    .map(t => ({ id: t.id, items: fromSnapshot(t.items), skills: t.skills || [] }));
   const rate = (team, snap, day) => {
     const hp = maxHp(day), me = fromSnapshot(snap);
     let s = 0, n = 0;
-    for (const o of oppsByDay[day]) { if (o.id === team.id) continue; s += duel(me, o.items, hp, team.artifacts || {}, o.artifacts); n++; }
+    for (const o of oppsByDay[day]) { if (o.id === team.id) continue; s += duel(me, o.items, hp, team.skills || [], o.skills); n++; }
     return n ? s / n : 0.5;
   };
   const baseCache = new Map();
@@ -77,7 +77,7 @@ export function analyze(pool, telemetry, impact) {
   }
   const rows = Object.entries(ITEMS).map(([id, d]) => {
     const offered = telemetry.offered[id] || 0, bought = telemetry.bought[id] || 0, im = impact[id] || {};
-    const econ = !!(d.gold || d.effects?.gold || d.map); // value comes from gold / artifacts, not fights
+    const econ = !!(d.gold || d.effects?.gold || d.map); // value comes from gold / skill picks, not fights
     const cats = d.cats || [];
     const positional = !!(d.aura?.scope || ['buffAdj', 'buffRow', 'buffCol', 'amplify'].includes(d.special?.kind) || d.on?.scope === 'adjacent');
     const gpf = econ ? goldPerFight(newInst(id)) : 0; // level I estimate
@@ -124,7 +124,7 @@ export function analyze(pool, telemetry, impact) {
     else if (flags.includes('weak') && flags.includes('underused')) note = 'Weak and skipped: buff its numbers, or rework how it works.';
     else if (flags.includes('weak') && x.positional) note = 'Depends on placement: check how bots place it before buffing numbers.';
     else if (flags.includes('weak')) note = 'Gets picked but adds little: buff its numbers.';
-    else if (x.econ && !Number.isFinite(x.payback)) note = 'Pays off in artifacts, not gold or fight power.';
+    else if (x.econ && !Number.isFinite(x.payback)) note = 'Pays off in a skill pick, not gold or fight power.';
     else if (flags.includes('slow-payback')) note = `Takes ~${x.payback.toFixed(1)} fights to earn its price back: raise its gold.`;
     else if (flags.includes('fast-payback')) note = `Pays for itself in ~${x.payback.toFixed(1)} fights: trim its gold.`;
     else if (flags.includes('strong')) note = 'Adds more than its price: trim its numbers.';
@@ -145,9 +145,9 @@ export function analyze(pool, telemetry, impact) {
     return [skill, { distinct: sorted.length, itemsFor80pct: n80, top5Share: sorted.slice(0, 5).reduce((a, b) => a + b, 0) / total }];
   }));
 
-  const artifacts = Object.entries(ARTIFACTS).map(([id, a]) => {
+  const skills = Object.entries(SKILLS).map(([id, a]) => {
     const off = telemetry.artOffered[id] || 0, got = telemetry.artPicked[id] || 0;
-    return { id, name: a.name, offered: off, picked: got, pickRate: off ? got / off : NaN };
+    return { id, name: a.name, rarity: a.rarity, offered: off, picked: got, pickRate: off ? got / off : NaN };
   });
   // By category: average value per gold of the (non-economy) items in each, so whole families can be tuned.
   const byCat = {};
@@ -156,7 +156,7 @@ export function analyze(pool, telemetry, impact) {
     items: xs.length, vpg: xs.reduce((a, x) => a + x.vpg, 0) / xs.length,
     pick: xs.reduce((a, x) => a + (Number.isFinite(x.pickRate) ? x.pickRate : 0), 0) / xs.length,
     strong: xs.filter(x => x.flags.includes('strong')).length, weak: xs.filter(x => x.flags.includes('weak')).length }]));
-  return { generated: new Date().toISOString(), teams: teams.length, rows, tiers, powerIndex: overall, diversity, artifacts, categories };
+  return { generated: new Date().toISOString(), teams: teams.length, rows, tiers, powerIndex: overall, diversity, skills, categories };
 }
 
 // How long fights last on each day: median and spread, and how often they reach the storm.
@@ -166,7 +166,7 @@ export function fightLengths(pool, { pairs = 40, seed = 5 } = {}) {
     const ts = [];
     for (let k = 0; k < pairs; k++) {
       const a = rng.pick(teams), b = rng.pick(teams); if (a === b) continue;
-      const B = new Battle(new Fighter('a', fromSnapshot(a.items), maxHp(+day), a.artifacts || {}), new Fighter('b', fromSnapshot(b.items), maxHp(+day), b.artifacts || {}));
+      const B = new Battle(new Fighter('a', fromSnapshot(a.items), maxHp(+day), a.skills || []), new Fighter('b', fromSnapshot(b.items), maxHp(+day), b.skills || []));
       while (!B.done) B.step();
       ts.push(B.t);
     }
@@ -187,12 +187,11 @@ export function diffReports(cur, base) {
 }
 
 // ---------- Trying changes without editing files ----------
-// --set crossbow.effects.damage=3,4,6,8   or   --set artifact:fury.v=0.1,0.15,0.2,0.25
+// --set crossbow.effects.damage=3,4,6,8
 export function applySet(expr) {
   const [path, raw] = expr.split('=');
-  const isArt = path.startsWith('artifact:');
-  const parts = (isArt ? path.slice(9) : path).split('.');
-  let obj = isArt ? ARTIFACTS : ITEMS;
+  const parts = path.split('.');
+  let obj = ITEMS;
   for (const k of parts.slice(0, -1)) { obj[k] ??= {}; obj = obj[k]; }
   const val = raw.includes(',') ? raw.split(',').map(Number) : Number.isNaN(Number(raw)) ? raw : Number(raw);
   obj[parts.at(-1)] = val;

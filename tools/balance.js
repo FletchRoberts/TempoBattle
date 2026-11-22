@@ -6,7 +6,6 @@
 //   npm run balance -- --save-baseline      store this run as the baseline future runs compare to
 //   npm run balance -- --scale crossbow=1.2 try a change in memory, without editing items.js
 //   npm run balance -- --set crossbow.effects.damage=3,4,6,8
-//   npm run balance -- --set artifact:fury.v=0.1,0.15,0.2,0.25
 //   npm run balance -- --only underused     print only rows with that flag (weak, strong, underused, ...)
 //
 // Writes data/balance-report.json; open /balance.html (npm run dev) for the sortable view.
@@ -54,7 +53,7 @@ for (const r of RARITIES) {
   if (!rows.length) continue;
   console.log(`-- ${r} (median val/g ${num(report.tiers[r].medVpg)}, median pick ${pct(report.tiers[r].medPick)})`);
   for (const x of rows) {
-    const sug = (x.suggestScale !== 1 ? ` → try --scale ${x.id}=${x.suggestScale}` : '') + (x.econ ? (Number.isFinite(x.payback) ? `  [gold: pays back in ${x.payback.toFixed(1)} fights]` : '  [pays off in artifacts]') : '') + (x.positional && x.flags.includes('weak') ? '  [placement-dependent]' : '');
+    const sug = (x.suggestScale !== 1 ? ` → try --scale ${x.id}=${x.suggestScale}` : '') + (x.econ ? (Number.isFinite(x.payback) ? `  [gold: pays back in ${x.payback.toFixed(1)} fights]` : '  [pays off in a skill pick]') : '') + (x.positional && x.flags.includes('weak') ? '  [placement-dependent]' : '');
     console.log(x.name.slice(0, 19).padEnd(20), x.rarity.padEnd(10), pct(x.pickRate).padStart(5), pct(x.presence).padStart(5),
       num(x.impact).padStart(7), num(x.vpg).padStart(7), (Number.isFinite(x.se) ? x.se.toFixed(2) : '–').padStart(5), base ? num(dItem[x.id]?.dVpg).padStart(7) : '', ' ', x.flags.join(',') + sug);
   }
@@ -64,7 +63,7 @@ console.log('\nPower index (presence-weighted value per gold):', num(report.powe
   base ? `| vs baseline ${(report.diff.powerChange * 100).toFixed(1)}%${report.diff.powerChange > 0.05 ? '  ⚠ POWER CREEP: the game got stronger overall' : ''}` : '| no baseline yet (run with --save-baseline)');
 console.log('Bot diversity (items making up 80% of picks / top-5 share):',
   Object.entries(report.diversity).map(([s, d]) => `${s} ${d.itemsFor80pct} / ${pct(d.top5Share)}`).join('  '));
-console.log('Artifacts picked when offered:', report.artifacts.sort((a, b) => a.pickRate - b.pickRate)
+console.log('Skills picked when offered:', report.skills.filter(a => a.offered).sort((a, b) => a.pickRate - b.pickRate)
   .map(a => `${a.name} ${pct(a.pickRate)}`).join(', '));
 console.log('By category (avg value per gold, items measured, strong/weak):');
 console.log('  ' + Object.entries(report.categories).sort((a, b) => b[1].vpg - a[1].vpg).map(([c, x]) => `${c} ${x.vpg.toFixed(2)} (${x.items}, ${x.strong}/${x.weak})`).join('  '));

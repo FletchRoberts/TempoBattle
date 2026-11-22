@@ -3,7 +3,7 @@ import { makeRng } from '../core/rng.js';
 import { MAX_DAYS, maxHp, fromSnapshot } from '../core/rules.js';
 import { duel } from '../core/sim.js';
 import { draftRun } from './drafter.js';
-import { ARCHETYPES, SKILLS, botName } from './archetypes.js';
+import { ARCHETYPES, SKILL_LEVELS, botName } from './archetypes.js';
 import { T } from '../balance/telemetry.js';
 
 export const MATCH_BAND = [0.3, 0.7];
@@ -15,29 +15,29 @@ export function buildPool({ seedsPerCombo = 2, baseSeed = 1, days = MAX_DAYS, sm
   const bots = [];
   let n = 0;
   // Pass 1: every bot drafts on gut feel.
-  for (const archId of Object.keys(ARCHETYPES)) for (const skillId of Object.keys(SKILLS)) for (let s = 0; s < seedsPerCombo; s++) {
+  for (const archId of Object.keys(ARCHETYPES)) for (const skillId of Object.keys(SKILL_LEVELS)) for (let s = 0; s < seedsPerCombo; s++) {
     const seed = baseSeed * 100003 + n++;
     // Smart bots redraft in pass 2, so their pass-1 draft must not count in shop telemetry.
-    const telWas = T.on; if (smart && SKILLS[skillId].lookahead) T.on = false;
+    const telWas = T.on; if (smart && SKILL_LEVELS[skillId].lookahead) T.on = false;
     bots.push({ id: `bot-${archId}-${skillId}-${s}`, name: botName(rng), arch: archId, skill: skillId, seed,
-      snaps: draftRun({ arch: ARCHETYPES[archId], skill: { ...SKILLS[skillId], lookahead: 0 }, seed, days }) });
+      snaps: draftRun({ arch: ARCHETYPES[archId], skill: { ...SKILL_LEVELS[skillId], lookahead: 0 }, seed, days }) });
     T.on = telWas;
   }
   // Pass 2: bots with lookahead redraft, testing each buy against a sample of the pass-1 field for that day.
   const benchCache = {};
   for (const b of bots) {
-    const skill = SKILLS[b.skill];
+    const skill = SKILL_LEVELS[b.skill];
     if (!smart || !skill.lookahead) continue;
     const bench = day => (benchCache[`${day}:${skill.lookahead}`] ||=
       makeRng(day * 7919 + skill.lookahead).shuffle(bots.map(o => o.snaps[day - 1])).slice(0, skill.lookahead)
-      .map(sn => ({ items: fromSnapshot(sn.items), artifacts: sn.artifacts })));
+      .map(sn => ({ items: fromSnapshot(sn.items), skills: sn.skills })));
     b.snaps = draftRun({ arch: ARCHETYPES[b.arch], skill, seed: b.seed, days, bench });
     onProgress(0, days);
   }
   const pool = { version: 1, generated: new Date().toISOString(), band: MATCH_BAND, days: {} };
   for (let day = 1; day <= days; day++) {
     const teams = bots.map(b => ({ id: `${b.id}-d${day}`, name: b.name, arch: b.arch, skill: b.skill, source: 'bot',
-      items: b.snaps[day - 1].items, artifacts: b.snaps[day - 1].artifacts }));
+      items: b.snaps[day - 1].items, skills: b.snaps[day - 1].skills }));
     rateField(teams, day);
     pool.days[day] = teams;
     onProgress(day, days);
@@ -50,7 +50,7 @@ export function rateField(teams, day) {
   const hp = maxHp(day), boards = teams.map(t => fromSnapshot(t.items));
   const score = new Array(teams.length).fill(0);
   for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) {
-    const s = duel(boards[i], boards[j], hp, teams[i].artifacts, teams[j].artifacts);
+    const s = duel(boards[i], boards[j], hp, teams[i].skills, teams[j].skills);
     score[i] += s; score[j] += 1 - s;
   }
   teams.forEach((t, i) => { t.wr = +(score[i] / Math.max(1, teams.length - 1)).toFixed(3); });
@@ -58,10 +58,10 @@ export function rateField(teams, day) {
 }
 
 // Rate one new board (e.g. a player's) against an existing field without re-rating the field.
-export function rateAgainst(items, field, day, artifacts = {}) {
+export function rateAgainst(items, field, day, skills = []) {
   const hp = maxHp(day), me = fromSnapshot(items);
   let s = 0;
-  for (const t of field) s += duel(me, fromSnapshot(t.items), hp, artifacts, t.artifacts);
+  for (const t of field) s += duel(me, fromSnapshot(t.items), hp, skills, t.skills || []);
   return +(s / Math.max(1, field.length)).toFixed(3);
 }
 

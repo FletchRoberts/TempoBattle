@@ -30,7 +30,7 @@ game skips straight to the fight for now.
 | Bar | 0.25s per column (`COL_TIME`), so a full pass is 1.25s. |
 | Charge | Each time the bar hits an item it gains 1 charge (yellow bar). At its cost it fires and spends it. Default 4 (= once per 5s); fast items 2–3 with smaller numbers, heavy items 5–8 with bigger ones. `charge` can list one cost per tier (fewer as it levels). `accel` = charges saved each time it fires, down to `minCharge`. Items with only triggers, auras, gold, start effects or amplify are passive and don't charge. |
 | Charging others | `special: { kind: 'charge', scope: 'adjacent' \| 'row' \| 'column', v }` (Dynamo, Tesla Coil); as a `start` special it's a head start (Capacitor). Charge-givers don't charge each other. Items filled by charge fire on the next tick, so loops (e.g. Dynamo + a weapon + Relay) can run all fight without freezing the game. Static Charge artifact: all items start with extra charge. |
-| Per-fire bonuses | Flat bonuses (modifiers, infusions, flat auras, buffs, artifact Burn/Poison adds) are scaled by charge cost ÷ 4, so a +5 modifier is worth the same per second on a fast or a slow item. |
+| Per-fire bonuses | Flat bonuses (Echo Rune aside: infusions, flat auras, buffs) are scaled by charge cost ÷ 4, so a +5 modifier is worth the same per second on a fast or a slow item. |
 | Burn | Deals its stacks every 0.5s, then loses 1. Against Shield it only does 80% damage (`BURN_VS_SHIELD`), so each Shield point blocks 1.25 Burn. |
 | Poison | Deals its stacks every 1s, ignores Shield, never fades. |
 | Regen | Heals its stacks every 1s. |
@@ -39,7 +39,7 @@ game skips straight to the fight for now.
 | Storm | After 30s both sides take a weapon-like hit every 0.5s (the Burn tick); Shield absorbs it first. It starts at 2 and each hit is 25% bigger (`OVERTIME`, `STORM_BASE`, `STORM_GROWTH`). Hard draw at 120s. |
 
 | Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
-| Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. No limit per item. Echo Rune (rare) adds +1 multicast (up to ×4). |
+| Modifiers | Flat stat modifiers were removed (skills do that now). The rare Echo Rune (6% of shops) still adds +1 multicast to an item. |
 | Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. An infusion adds a percentage of the item's power (its per-fire numbers in damage terms, `STAT_WEIGHT`) as its own stat, e.g. Ember Essence = Burn worth 30% of the item, so big items get big infusions. |
 | Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): +1 multicast on top of its own, double price. Merging keeps it. Some items have built-in `multicast`. |
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
@@ -55,10 +55,10 @@ game skips straight to the fight for now.
 | Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |
 | HP | Bazaar-sized numbers: 260 on Day 1 up to ~13,800 on Day 17 (`HP_BY_DAY`), calibrated with `node tools/calibrate-hp.js` so a typical fight lasts ~18s on every day. Item numbers are on the same scale (a Common Dagger hits for 24). |
-| Artifacts | Run-wide passives in `src/data/artifacts.js`. Choose 1 of 3 on Days 3, 6, 9 … (and from a Treasure Map); picking one again levels it up to IV. They're saved with your board so opponents carry theirs. |
+| Skills | Run-wide passives in `src/data/skills.js`. Start of run: choose 1 of 3 **starter** skills (an exclusive pool that points at a build). Every item upgrade: choose 1 of 3 skills of the item's rarity before the upgrade (Common → Uncommon gives a Common skill). Treasure Map and the Relic Hunter boon also give picks. Boosts are percentages ("your Melee items deal +15% damage") so they stay relevant as numbers grow. Each skill can be owned once. Bots favour their archetype's starter. |
 | Gold items | `gold: { when, v, grow? }` pays out after fights while on your board, alone (Coin Purse, Piggy Bank) or alongside a fight effect (Tax Collector, Lucky Clover, Trade Caravan). `map` grants an artifact choice after N fights. |
 | Gold on trigger | A `gold` effect earns gold each time the item fires, capped per fight by `goldCap` (Pickpocket Glove, Midas Hammer, Slot Machine). Paid out after the fight. |
-| Income artifacts | Tithe (flat), Compound Interest (10% of your gold, capped), Bounty Hunter (per win), Golden Touch (+N per gold-paying item). |
+| Income skills | Tithe, Merchant Prince (flat gold), Compound Interest (10% of your gold, capped), Bounty Hunter (per win), Golden Touch (+N per gold-paying item). |
 | Rows / columns | `aura.scope: 'row' \| 'column'` limits an aura to items sharing a row or column; `aura.multicast` adds activations (War Drum, Oil Lamp, Watchtower, Conductor's Baton). Specials `buffRow` / `buffCol` buff on trigger (Plague Rat, Field Forge). |
 | Max HP | `maxhp` stat: raises max HP and current HP (Heart Locket, Troll Blood, Giant's Belt). |
 | Triggers | `on: { event, scope, effects }`: an item reacts when your other items activate, apply Burn/Poison, gain Shield, Heal or deal damage. Triggered effects don't chain. |
@@ -132,7 +132,7 @@ What it measures per item:
   (1.00 = average). Also per grid cell.
 - **±**: standard error. Items are only flagged `strong` / `weak` when they're clearly outside their
   tier's median even allowing for noise. Gold items are judged by payback (fights to earn their
-  price back), Treasure Map by artifacts.
+  price back), Treasure Map by its skill pick.
 - **Power index**: presence-weighted value per gold. More than +5% vs the baseline is flagged as
   power creep. Suggestions only move items toward their tier median, never above it.
 - **Bot diversity**: how many items make up 80% of each skill level's picks. If experts collapse onto
@@ -140,5 +140,5 @@ What it measures per item:
 
 Tuning helpers: `node tools/scale-stats.js poison=0.75 damage=1.15` scales a stat across every item (add `--cat Clockwork` for one category; the balance report shows value by category); `node tools/calibrate-hp.js --write` re-fits max HP per day so fights last ~18s (rebuild the pool before and after).
 
-Other options: `--quick` (faster, noisier), `--set item.path=values`, `--set artifact:id.v=...`,
+Other options: `--quick` (faster, noisier), `--set item.path=values`,
 `--only weak`.

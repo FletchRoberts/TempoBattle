@@ -1,7 +1,7 @@
 // Deterministic combat simulation. The game, the bots and the rating tool all run this exact code
 // with a fixed timestep, so a matchup always has the same result everywhere.
 import { ITEMS } from '../data/items.js';
-import { artifactEffects } from '../data/artifacts.js';
+import { skillEffects } from '../data/skills.js';
 import { COLS, def, statsOf, tagsOf, adjacent, inScope, hasCat, uid, isActive, chargeCost, perFireScale, scaledBonus } from './rules.js';
 
 export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 1.25s)
@@ -20,9 +20,9 @@ export const MIN_SPEED = 0.3;  // slows can't push a bar below this
 export const BURN_VS_SHIELD = 0.8;  // Burn deals only this much of its damage to Shield (1 = no reduction)
 
 export class Fighter {
-  constructor(name, items, hp, artifacts = {}) {
-    this.art = artifactEffects(artifacts);
-    hp += this.art.maxHp || 0;
+  constructor(name, items, hp, skills = []) {
+    this.sk = skillEffects(skills);
+    hp = Math.round(hp * (1 + this.sk.maxHp));
     this.name = name; this.maxHp = hp; this.hp = hp;
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
     this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0,
@@ -34,7 +34,8 @@ export class Fighter {
       if (a?.multicast) for (const t of this.items) if (t !== o && inScope(a.scope, o, t) && hasCat(t, a.cat)) t.extraMc += a.multicast[o.level - 1];
     }
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
-    this.speedPerm = 1 + (this.art.speed || 0); this.hastes = []; this.slows = [];
+    for (const m of this.sk.multicast) for (const t of this.items) if (hasCat(t, m.cat)) t.extraMc += m.v; // skills like Echoing Steel
+    this.speedPerm = 1 + this.sk.speed; this.hastes = []; this.slows = [];
     this.ready = []; this.fired = 0;
   }
   speed(t) {
@@ -133,6 +134,11 @@ export class Battle {
       const av = a.v[o.level - 1];
       st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + scaledBonus(av, perFireScale(inst));
     }
+    // Skills: "+X% <stat>" for matching items (by category / tag), on the stats this item has.
+    for (const p of me.sk.pct) {
+      if (!hasCat(inst, p.cat) || (p.tag && !tagsOf(inst).has(p.tag))) continue;
+      for (const k of Object.keys(st)) if (k !== 'gold' && st[k] > 0 && (p.stat === '*' || p.stat === k)) st[k] *= 1 + p.v;
+    }
     if (st.gold) { // gold on trigger, capped per item per fight
       const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
       if (give) { inst.goldEarned += give; me.goldEarned += give; this.fx('float', i, `+${give}g`, 'gold'); }
@@ -173,9 +179,9 @@ export class Battle {
   // Battle start: items with a `start` block fire it once, before any bar moves.
   battleStart(i) {
     const me = this.f[i];
-    if (me.art.startShield) this.applyStats(i, { shield: me.art.startShield }, 1);
-    if (me.art.startHaste) me.hastes.push({ src: 'artifact', v: 0.5, until: me.art.startHaste });
-    if (me.art.startCharge) for (const o of me.items) if (o.cost) o.charge = Math.min(o.cost - 1, o.charge + me.art.startCharge);
+    if (me.sk.startShield) this.applyStats(i, { shield: Math.round(me.maxHp * me.sk.startShield) }, 1);
+    if (me.sk.startHaste) me.hastes.push({ src: 'skill', v: 0.5, until: me.sk.startHaste });
+    for (const c of me.sk.startCharge) for (const o of me.items) if (o.cost && hasCat(o, c.cat)) o.charge = Math.min(o.cost - 1, o.charge + c.v);
     for (const inst of this.f[i].items) {
       const s0 = def(inst).start; if (!s0) continue;
       const L = inst.level - 1, st = {};
@@ -187,13 +193,10 @@ export class Battle {
   }
   // Applies stats and returns which kinds of effect happened (for triggers).
   applyStats(i, st, mult, perFire = 1) {
-    const me = this.f[i], foe = this.f[1 - i], events = new Set(), A = me.art;
-    // Artifacts scale or add to what you apply (only to effects the item actually has).
-    const artMult = { damage: 1 + (A.dmgPct || 0), heal: 1 + (A.healPct || 0), shield: 1 + (A.shieldPct || 0) };
-    const artAdd = { burn: scaledBonus(A.burnAdd || 0, perFire), poison: scaledBonus(A.poisonAdd || 0, perFire) };
+    const me = this.f[i], foe = this.f[1 - i], events = new Set();
     const val = k => {
       const base = (st[k] || 0) * mult;
-      const x = base > 0 ? Math.round(base * (artMult[k] || 1) + (artAdd[k] || 0)) : 0;
+      const x = base > 0 ? Math.round(base) : 0;
       if (x > 0) events.add(k);
       return x;
     };
@@ -276,7 +279,7 @@ export class Battle {
   // and grows exponentially so stacked Shield can't stall forever.
   stormTick() {
     this.storm = Math.round(STORM_BASE * STORM_GROWTH ** this.stormHits++);
-    for (let i = 0; i < 2; i++) this.hit(i, Math.round(this.storm * (1 - (this.f[i].art.stormWard || 0))), 'storm');
+    for (let i = 0; i < 2; i++) this.hit(i, Math.round(this.storm * (1 - Math.min(0.9, this.f[i].sk.stormWard))), 'storm');
   }
   checkEnd() {
     const [a, b] = this.f;
@@ -288,14 +291,14 @@ export class Battle {
 }
 
 // Run a full fight without visuals. Returns 'win' | 'loss' | 'draw' for side A.
-export function simulate(itemsA, itemsB, hp, artsA = {}, artsB = {}) {
-  const B = new Battle(new Fighter('A', itemsA, hp, artsA), new Fighter('B', itemsB, hp, artsB));
+export function simulate(itemsA, itemsB, hp, skillsA = [], skillsB = []) {
+  const B = new Battle(new Fighter('A', itemsA, hp, skillsA), new Fighter('B', itemsB, hp, skillsB));
   while (!B.done) B.step(SIM_DT);
   return B.result;
 }
 
 // Score A vs B from both seats (side 0 acts first within a tick), 0..1 for A.
-export function duel(itemsA, itemsB, hp, artsA = {}, artsB = {}) {
+export function duel(itemsA, itemsB, hp, skillsA = [], skillsB = []) {
   const pts = { win: 1, draw: 0.5, loss: 0 };
-  return (pts[simulate(itemsA, itemsB, hp, artsA, artsB)] + (1 - pts[simulate(itemsB, itemsA, hp, artsB, artsA)])) / 2;
+  return (pts[simulate(itemsA, itemsB, hp, skillsA, skillsB)] + (1 - pts[simulate(itemsB, itemsA, hp, skillsB, skillsA)])) / 2;
 }

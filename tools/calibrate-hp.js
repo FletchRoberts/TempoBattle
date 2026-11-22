@@ -14,7 +14,7 @@ function medianLength(teams, hp, seed) {
   const rng = makeRng(seed), ts = [];
   for (let k = 0; k < PAIRS; k++) {
     const a = rng.pick(teams), b = rng.pick(teams); if (a === b) continue;
-    const B = new Battle(new Fighter('a', fromSnapshot(a.items), hp, a.artifacts || {}), new Fighter('b', fromSnapshot(b.items), hp, b.artifacts || {}));
+    const B = new Battle(new Fighter('a', fromSnapshot(a.items), hp, a.skills || []), new Fighter('b', fromSnapshot(b.items), hp, b.skills || []));
     while (!B.done) B.step();
     ts.push(B.t);
   }

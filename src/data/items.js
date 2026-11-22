@@ -103,16 +103,10 @@ export const INFUSIONS = {
 // e.g. 1 Burn ~ 7 damage (it ticks and decays), 1 Regen ~ 8 (heals every second all fight).
 export const STAT_WEIGHT = { damage: 1, shield: 1.15, heal: 1.15, burn: 7, poison: 3, regen: 8, maxhp: 0.6, cleanse: 1 };
 
-// Modifiers: cheap shop buys that add a flat bonus to one item (and its tag).
-// No limit per item. `weight` is how often it appears in the shop.
+// Modifiers: shop buys you apply to an item. Flat stat modifiers were replaced by skills; the rare
+// Echo Rune (+1 multicast) remains.
 export const MODIFIERS = {
-  whetted:  { name: 'Whetstone Oil', icon: '🔪', stat: 'damage', v: 30, tag: 'weapon', price: 3, weight: 3 },
-  kindling: { name: 'Kindling',      icon: '🪵', stat: 'burn',   v: 5, tag: 'fire',   price: 4, weight: 3 },
-  venom:    { name: 'Venom Coating', icon: '🦂', stat: 'poison', v: 5, tag: 'poison', price: 4, weight: 3 },
-  plating:  { name: 'Iron Plating',  icon: '🔩', stat: 'shield', v: 24, tag: 'shield', price: 3, weight: 3 },
-  salve:    { name: 'Healing Salve', icon: '🫙', stat: 'heal',   v: 24, tag: 'heal',   price: 3, weight: 3 },
-  sap:      { name: 'Living Sap',    icon: '🍯', stat: 'regen',  v: 6, tag: 'regen',  price: 4, weight: 2 },
-  echoRune: { name: 'Echo Rune',     icon: '🔁', multicast: 1, price: 12, weight: 0.4 },
+  echoRune: { name: 'Echo Rune',     icon: '🔁', multicast: 1, price: 12, weight: 1 },
 };
 
 // Items, grouped by starting rarity. Upgrading (merging two copies) moves an item up one tier,

@@ -2,7 +2,7 @@
 // Later: swap this class for one that talks to a server; the game only uses field/pick/submit.
 import { pickOpponent, rateAgainst, buildPool } from '../bots/pool.js';
 
-const KEY = 'tempoforge.submissions.v3'; // v3: 3 x 5 board
+const KEY = 'tempoforge.submissions.v4'; // v4: skills instead of artifacts
 const MAX_LOCAL = 300;
 
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
@@ -24,9 +24,9 @@ export class PoolStore {
   }
 
   // Rate a player's board against the day's field and add it to the pool for future runs.
-  submit({ runId, day, name, items, artifacts = {} }) {
-    const wr = rateAgainst(items, this.base(day), day, artifacts);
-    const team = { id: `local-${runId}-d${day}`, runId, day: this.dayKey(day), name, source: 'player', items, artifacts, wr };
+  submit({ runId, day, name, items, skills = [] }) {
+    const wr = rateAgainst(items, this.base(day), day, skills);
+    const team = { id: `local-${runId}-d${day}`, runId, day: this.dayKey(day), name, source: 'player', items, skills, wr };
     this.local = [...this.local.filter(t => t.id !== team.id), team].slice(-MAX_LOCAL);
     save(this.local);
     return team;
