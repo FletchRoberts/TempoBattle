@@ -947,7 +947,7 @@ function renderBattle() {
     panel.append(head, tl.wrap);
     main.append(panel);
     const items = new Map(); tl.grid.querySelectorAll('.item').forEach(n => items.set(+n.dataset.uid, n));
-    ui.sides[i] = { head, items, bars, barEls: new Map() };
+    ui.sides[i] = { head, items, bars, barEls: new Map(), grid: tl.grid };
   }
   const ctr = el('section', 'panel controls');
   ctr.innerHTML = `<h3>Playback</h3><div class="seg">${[1, 2, 4].map(s => `<button type="button" data-s="${s}" class="${s === battleSpeed ? 'on' : ''}">×${s}</button>`).join('')}</div>
@@ -956,7 +956,9 @@ function renderBattle() {
     battleSpeed = +b.dataset.s; ctr.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b));
   });
   $('#skip', ctr).onclick = () => { const fx = B.fx; B.fx = () => {}; while (!B.done) B.step(SIM_DT); B.fx = fx; };
-  side.append(ctr, el('section', 'panel rules', rulesHtml()));
+  ui.ins = el('section', 'panel inspector live-ins', `<h3>Inspector</h3><p class="muted">Hover an item, yours or the enemy's, to see its live charge, numbers and what it has done so far.</p>`);
+  for (const i of [0, 1]) bindItemHover(ui.sides[i].grid, B, i, ui.ins, true, h => { ui.hover = h; });
+  side.append(ctr, ui.ins, el('section', 'panel rules', rulesHtml()));
   ui.clock = $('.clock', ctr);
   v.append(main, side);
 
@@ -1005,6 +1007,13 @@ function updateBattle(acc) {
     }
   }
   ui.clock.innerHTML = `<span>${B.t.toFixed(1)}s</span>` + (B.storm ? `<b>Storm ${B.storm}/hit</b>` : `<small>storm at ${OVERTIME}s</small>`);
+  // the hovered item's live numbers, a few times a second
+  const now = performance.now();
+  if (ui.hover && now - (ui.hoverAt || 0) > 120) {
+    ui.hoverAt = now;
+    const part = ui.ins?.querySelector('.live-part');
+    if (part) part.innerHTML = fightItemLive(B, ui.hover.i, ui.hover.inst, !B.done);
+  }
 }
 // Damage/Burn/Poison fly from the item to the enemy's health bar; Heal/Shield/Regen fly to yours.
 const FLY = new Set(['damage', 'burn', 'poison', 'shield', 'heal', 'regen']);
@@ -1075,6 +1084,39 @@ function sideSummary(B, i, name) {
     <div class="sum-wrap"><table class="sum-table"><thead><tr><th>Item</th><th class="num">Fired</th><th>Numbers at the end</th>${REC_COLS.map(([, n]) => `<th class="num">${n}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody></table></div></section>`;
 }
+// One item in a fight, live (during it) or final (run summary): charge, fires, numbers right now and
+// everything it has applied. The "What it does" part is static, so it's built separately.
+function fightItemLive(B, i, inst, live) {
+  const d = def(inst), fin = B.computeStats(i, inst), mc = (inst.multicast || 1) + inst.extraMc;
+  const whose = i === 0 ? 'Yours' : `${B.f[1].name}'s`;
+  const charge = inst.cost
+    ? `<li class="s-charge">⚡ Charge <b>${Math.floor(inst.charge)} / ${inst.cost}</b><span class="mini-bar"><i style="width:${Math.min(100, inst.charge / inst.cost * 100)}%"></i></span>${d.accel ? ` <small class="muted">needs ${d.accel} less after each fire (min ${d.minCharge ?? 1})</small>` : ''}</li>`
+    : `<li class="s-charge passive">Passive: never charges${d.on ? ', reacts to your other items' : ''}</li>`;
+  const nums = CHIP_STATS.filter(k => fin[k] > 0).map(k => `<li class="s-${k}">${STAT_NAME[k]} <b class="fin">${compact(fin[k])}</b> each fire</li>`).join('');
+  const scale = (d.scale || []).map(sc => `<li class="s-${sc.stat} s-scale">Scaling: ${sc.v[inst.level - 1]}× ${SCALE_FROM[sc.from]}</li>`).join('');
+  const buffs = Object.entries(inst.bonus || {}).filter(([, v]) => v).map(([k, v]) => `+${compact(v)} ${STAT_NAME[k]}`).join(', ');
+  const applied = REC_COLS.filter(([k]) => inst.rec[k]).map(([k, n]) => `<li class="c-${k}"><b>${compact(inst.rec[k])}</b> ${n}</li>`).join('');
+  return `<div class="ins-h r-${tierOf(inst)}"><span class="ins-ico">${d.icon}</span><div><h3>${d.name}</h3>
+      <span class="chip rar">${RARITY[tierOf(inst)].name}</span><span class="chip">${whose}</span>${mc > 1 ? `<span class="chip shiny-tag">Multicast ×${mc}</span>` : ''}</div></div>
+    <ul class="effects live">${charge}<li>Fired <b>${inst.rec.fires}</b> time${inst.rec.fires === 1 ? '' : 's'}${live ? ' so far' : ''}</li>${nums}${scale}
+      ${buffs ? `<li class="s-buff">Gained this fight: ${buffs}</li>` : ''}</ul>
+    <h4 class="ins-sub">${live ? 'Applied so far' : 'Applied in the fight'}</h4>
+    ${applied ? `<ul class="sum-tot">${applied}</ul>` : '<p class="muted">Nothing yet.</p>'}`;
+}
+function fightItemHtml(B, i, inst, live) {
+  FINALS.set(inst.uid, { ...B.computeStats(i, inst), mc: (inst.multicast || 1) + inst.extraMc }); // the description shows these numbers
+  return `<div class="live-part">${fightItemLive(B, i, inst, live)}</div>
+    <details class="ins-more"><summary>What it does</summary><ul class="effects">${describe(inst) || '<li class="muted">No active effect.</li>'}</ul></details>`;
+}
+// Hovering items in a fight or a summary: point the panel at one item (sticky until another is hovered).
+function bindItemHover(grid, B, i, panel, live, onPick) {
+  grid.querySelectorAll('.item').forEach(n => n.addEventListener('mouseenter', () => {
+    const inst = B.f[i].items.find(o => o.uid === +n.dataset.uid); if (!inst) return;
+    panel.innerHTML = fightItemHtml(B, i, inst, live);
+    onPick?.({ i, inst });
+  }));
+}
+
 function battleSummary(B) {
   return `<details class="battle-summary"><summary>Battle summary · ${B.t.toFixed(1)}s</summary>
     ${sideSummary(B, 0, 'You')}${sideSummary(B, 1, B.f[1].name)}
@@ -1141,7 +1183,24 @@ function renderOver() {
   $('#to-title').onclick = () => { S = { phase: 'title' }; render(); };
   if (canEndless) $('#endless').onclick = () => { S.endless = true; advanceDay(S.lastResult || 'win'); };
   if (S.frontier) S.saved?.then(st => { const n = $('.saved-note'); if (n) n.textContent = SAVED_TEXT[st]; });
-  v.querySelector('.over-card').append(historyPanel());
+  const card = v.querySelector('.over-card');
+  const B = S.battle;
+  if (B) {
+    card.classList.add('run-summary');
+    const team = el('section', 'run-team');
+    const losses = S.history.filter(h => h.result === 'loss').length, best = Math.max(0, ...S.history.map(h => h.myWr || 0));
+    team.append(el('h3', '', 'Your team'), el('dl', 'run-facts', `<div><dt>Record</dt><dd>${S.wins}–${losses}</dd></div><div><dt>Days</dt><dd>${S.day}</dd></div>
+      <div><dt>Lives left</dt><dd>${S.lives}</dd></div><div><dt>Best rating</dt><dd>${pct(best)}</dd></div><div><dt>Skills</dt><dd>${S.skills.length}</dd></div>`));
+    const tl = timeline(B.f[0].items);
+    const ins = el('section', 'panel inspector run-ins', `<h3>Final fight</h3><p class="muted">Hover an item to see what it did in your last fight (Day ${S.history.at(-1)?.day ?? S.day}): times fired, its final numbers with all scaling, and everything it applied.</p>`);
+    bindItemHover(tl.grid, B, 0, ins, false);
+    const cols = el('div', 'run-cols'), left = el('div', 'run-left');
+    left.append(tl.wrap, skillsPanel());
+    cols.append(left, ins);
+    team.append(cols);
+    card.insertBefore(team, card.querySelector('#endless') || card.querySelector('#again'));
+  }
+  card.append(historyPanel());
   $('#again').onclick = newRun;
 }
 
