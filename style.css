@@ -405,3 +405,7 @@ button { font: inherit; color: inherit; }
 .item .chg i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--c, 0) * 100%); background: var(--c-time); border-radius: 2px; }
 .bench .item .chg { display: none; }
 .s-charge { color: var(--fg); } .s-charge .cur { color: var(--c-time); } .s-charge.passive { color: var(--muted); }
+
+/* ---------- Categories ---------- */
+.tag.cat { color: var(--fg); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); text-transform: none; letter-spacing: 0.02em; font-size: 11px; }
+.o-cats { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }

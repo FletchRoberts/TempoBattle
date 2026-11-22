@@ -1,5 +1,5 @@
 // Browser UI: shop, drag and drop, PvP battle playback. All rules come from src/core.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE, SHOP_TOKENS } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE, SHOP_TOKENS, CATEGORIES } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
@@ -200,15 +200,17 @@ function describeLines(inst) {
   if (d.map) lines.push(`<li class="s-gold"><b>After ${prog(d.map.v, L)} fights on your board:</b> it's used up and you choose an artifact${inst.charge ? ` (${inst.charge} done)` : ''}</li>`);
   if (d.on) {
     const parts = Object.entries(d.on.effects || {}).map(([k, arr]) => STAT_TEXT[k](prog(arr, L)).replace(/^./, c => c.toLowerCase()));
+    if (d.on.special) { const SP = SPECIALS[d.on.special.kind]; parts.push(SP.text(d.on.special, prog(d.on.special.v, L, SP.fmt)).replace(/^./, c => c.toLowerCase())); }
     lines.push(`<li class="s-trigger"><b>${ON_EVENT[d.on.event](d.on)}:</b> ${parts.join(', ')}</li>`);
   }
   if (d.aura) {
     const a = d.aura;
-    const who = `your other ${a.tag ? TAG_NAME[a.tag] + ' ' : ''}items${a.scope ? ' ' + AURA_SCOPE[a.scope] : ''}`;
+    const who = `your other ${a.cat ? a.cat + ' ' : a.tag ? TAG_NAME[a.tag] + ' ' : ''}items${a.scope ? ' ' + AURA_SCOPE[a.scope] : ''}`;
     const what = a.multicast ? `+${prog(a.multicast, L)} multicast`
       : `+${prog(a.v, L, a.pct ? x => Math.round(x * 100) + '%' : x => x)} ${STAT_NAME[a.stat]}`;
     lines.push(`<li class="s-aura"><b>Passive:</b> ${who} get ${what}${a.cond ? ' ' + AURA_COND[a.cond] : ''}${a.stat && !a.pct ? ` (if they have ${STAT_NAME[a.stat]})` : ''}</li>`);
   }
+  if (d.per) lines.push(`<li class="s-${d.per.stat}">+${prog(d.per.v, L)} ${STAT_NAME[d.per.stat]} for each other ${d.per.cat} item you have</li>`);
   if (d.goldCap) lines.push(`<li class="s-gold">Earns up to ${prog(d.goldCap, L)} gold per fight</li>`);
   for (const id of inst.mods || []) {
     const m = MODIFIERS[id];
@@ -335,6 +337,7 @@ function showHelp() {
       <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
       <li><b>Artifacts.</b> Every ${ARTIFACT_DAYS} days you choose 1 of 3 artifacts: run-wide bonuses like a faster bar or more damage. Picking one again levels it up. A Treasure Map also earns you a pick.</li>
+      <li><b>Categories.</b> Every item is one or two kinds of thing (Melee, Clockwork, Treasure, Beast...). Many items care about them: "When you use another Clockwork item", "+Damage for each Treasure you have", "your Melee items get +Damage".</li>
       <li><b>Gold.</b> Some items pay out after fights just for being on your board, others earn gold each time they fire (up to a cap per fight). Artifacts like Tithe and Compound Interest add more.</li>
       <li><b>Rows and columns.</b> Some items boost the other items in their row or column, like War Drum (+Damage to its column) or Conductor's Baton (+1 multicast to its column).</li>
       <li><b>Win the run.</b> Reach ${WINS_TO_CLEAR} wins before your ${START_LIVES} lives run out. A loss costs ${lifeLoss(1)} life on Days 1–3, ${lifeLoss(4)} on Days 4–7 and ${lifeLoss(8)} after that. The first time you run out, you get a Last Stand: pick a rare boon and fight on with 1 life.</li>
@@ -394,7 +397,7 @@ function renderShop() {
       const d = def(o.inst);
       c.classList.add('r-' + tierOf(o.inst));
       if (isShiny(o.inst)) c.classList.add('shiny');
-      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-meta"><b class="rar">${RARITY[tierOf(o.inst)].name}</b>${o.inst.level > 1 ? ' <span class="upg">upgraded</span>' : ''}` +
+      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-cats">${(d.cats || []).join(' · ')}</span><span class="o-meta"><b class="rar">${RARITY[tierOf(o.inst)].name}</b>${o.inst.level > 1 ? ' <span class="upg">upgraded</span>' : ''}` +
         `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}` +
         `${o.inst.infusion ? ` <b class="inf-tag" title="${INFUSIONS[o.inst.infusion].name}">${INFUSIONS[o.inst.infusion].icon} Infused</b>` : ''}</span>`;
       const shape = el('span', 'shape');
@@ -534,7 +537,8 @@ function showInspector(target) {
     return;
   }
   const inst = target.inst, d = def(inst);
-  const tags = [...tagsOf(inst)].map(t => `<span class="tag t-${t}">${TAG_NAME[t]}</span>`).join('');
+  const tags = (d.cats || []).map(c => `<span class="tag cat" title="${CATEGORIES[c]}">${c}</span>`).join('') +
+    [...tagsOf(inst)].map(t => `<span class="tag t-${t}">${TAG_NAME[t]}</span>`).join('');
   let actions = '', mergeHint = '';
   if (target.from === 'owned') {
     const twins = [...S.board, ...S.bench].filter(o => canMerge(o, inst)).length;

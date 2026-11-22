@@ -6,7 +6,7 @@ import { makeRng } from '../core/rng.js';
 import {
   START_GOLD, MAX_DAYS, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rerollCost,
   canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp, canApplyMod, applyMod, rollInfusion,
-  afterFightGold, shopRank, offerPrice, tierOf, isActive, chargeCost, CHARGE_DEFAULT,
+  afterFightGold, shopRank, offerPrice, tierOf, isActive, chargeCost, CHARGE_DEFAULT, hasCat,
 } from '../core/rules.js';
 import { simulate } from '../core/sim.js';
 import { tel, telShop } from '../balance/telemetry.js';
@@ -59,6 +59,9 @@ export function itemValue(inst, board, arch) {
     v *= n ? 0.6 + 0.4 * Math.min(n, 3) : 0.3;
   }
   if (sp?.kind === 'amplify') v *= others.length >= 3 ? 1 : 0.5;
+  // category synergies ("for each X", "your X items", "when you use another X") need X items around
+  const cat = d.per?.cat || d.aura?.cat || d.on?.cat || d.start?.special?.cat || sp?.cat;
+  if (cat) { const n = others.filter(o => hasCat(o, cat)).length; v *= n ? 0.6 + 0.4 * Math.min(n, 3) : 0.35; }
   if (sp?.kind === 'ignite') v *= others.some(o => statsOf(o).burn) ? 1 : 0.2;
   // faster items fire more often (roughly; speeding-up items count at their average)
   if (isActive(d)) v *= CHARGE_DEFAULT / Math.max(1, d.accel ? (chargeCost(inst) + (d.minCharge ?? 1)) / 2 : chargeCost(inst));

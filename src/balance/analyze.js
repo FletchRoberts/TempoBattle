@@ -78,12 +78,13 @@ export function analyze(pool, telemetry, impact) {
   const rows = Object.entries(ITEMS).map(([id, d]) => {
     const offered = telemetry.offered[id] || 0, bought = telemetry.bought[id] || 0, im = impact[id] || {};
     const econ = !!(d.gold || d.effects?.gold || d.map); // value comes from gold / artifacts, not fights
+    const cats = d.cats || [];
     const positional = !!(d.aura?.scope || ['buffAdj', 'buffRow', 'buffCol', 'amplify'].includes(d.special?.kind) || d.on?.scope === 'adjacent');
     const gpf = econ ? goldPerFight(newInst(id)) : 0; // level I estimate
     return { id, name: d.name, rarity: d.rarity, offered, bought, pickRate: offered ? bought / offered : NaN,
       presence: (presence[id] || 0) / teams.length, wrWith: mean(wrWith[id] || []),
       samples: im.samples || 0, impact: im.impact ?? NaN, vpg: im.vpg ?? NaN, se: im.se ?? NaN, vpc: im.vpc ?? NaN,
-      econ, positional, goldPerFight: gpf, payback: econ && gpf > 0 ? RARITY[d.rarity].price / gpf : NaN };
+      econ, positional, cats, goldPerFight: gpf, payback: econ && gpf > 0 ? RARITY[d.rarity].price / gpf : NaN };
   });
 
   // Tier benchmarks (only items with enough data count).
@@ -148,7 +149,14 @@ export function analyze(pool, telemetry, impact) {
     const off = telemetry.artOffered[id] || 0, got = telemetry.artPicked[id] || 0;
     return { id, name: a.name, offered: off, picked: got, pickRate: off ? got / off : NaN };
   });
-  return { generated: new Date().toISOString(), teams: teams.length, rows, tiers, powerIndex: overall, diversity, artifacts };
+  // By category: average value per gold of the (non-economy) items in each, so whole families can be tuned.
+  const byCat = {};
+  for (const x of rows) if (x.samples >= 5 && !x.econ) for (const c of x.cats) (byCat[c] ||= []).push(x);
+  const categories = Object.fromEntries(Object.entries(byCat).map(([c, xs]) => [c, {
+    items: xs.length, vpg: xs.reduce((a, x) => a + x.vpg, 0) / xs.length,
+    pick: xs.reduce((a, x) => a + (Number.isFinite(x.pickRate) ? x.pickRate : 0), 0) / xs.length,
+    strong: xs.filter(x => x.flags.includes('strong')).length, weak: xs.filter(x => x.flags.includes('weak')).length }]));
+  return { generated: new Date().toISOString(), teams: teams.length, rows, tiers, powerIndex: overall, diversity, artifacts, categories };
 }
 
 // How long fights last on each day: median and spread, and how often they reach the storm.

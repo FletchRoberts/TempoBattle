@@ -2,7 +2,7 @@
 // with a fixed timestep, so a matchup always has the same result everywhere.
 import { ITEMS } from '../data/items.js';
 import { artifactEffects } from '../data/artifacts.js';
-import { COLS, def, statsOf, tagsOf, adjacent, inScope, uid, isActive, chargeCost, perFireScale, scaledBonus } from './rules.js';
+import { COLS, def, statsOf, tagsOf, adjacent, inScope, hasCat, uid, isActive, chargeCost, perFireScale, scaledBonus } from './rules.js';
 
 export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 1.25s)
 // Charge loops are allowed: fires set off by charge happen on the next tick, so a loop runs at a
@@ -31,7 +31,7 @@ export class Fighter {
     // Multicast auras (e.g. Conductor's Baton) are positional, so work them out once.
     for (const o of this.items) {
       const a = ITEMS[o.id].aura;
-      if (a?.multicast) for (const t of this.items) if (t !== o && inScope(a.scope, o, t)) t.extraMc += a.multicast[o.level - 1];
+      if (a?.multicast) for (const t of this.items) if (t !== o && inScope(a.scope, o, t) && hasCat(t, a.cat)) t.extraMc += a.multicast[o.level - 1];
     }
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
     this.speedPerm = 1 + (this.art.speed || 0); this.hastes = []; this.slows = [];
@@ -123,10 +123,12 @@ export class Battle {
     for (const o of me.items) if (o !== inst && ITEMS[o.id].special?.kind === 'amplify' && adjacent(o, inst)) mult += ITEMS[o.id].special.v[o.level - 1];
     const st = statsOf(inst);
     for (const k in inst.bonus) st[k] = (st[k] || 0) + inst.bonus[k];
+    // "+N for each other <category> item you have"
+    if (d.per) { const n = me.items.filter(o => o !== inst && hasCat(o, d.per.cat)).length; st[d.per.stat] = (st[d.per.stat] || 0) + d.per.v[L] * n; }
     // Auras from your other items: boost stats this item already has, by tag and condition.
     for (const o of me.items) {
       const a = ITEMS[o.id].aura;
-      if (!a || !a.stat || o === inst || !st[a.stat] || (a.tag && !tagsOf(inst).has(a.tag))
+      if (!a || !a.stat || o === inst || !st[a.stat] || (a.tag && !tagsOf(inst).has(a.tag)) || !hasCat(inst, a.cat)
         || !inScope(a.scope, o, inst) || !this.condOk(i, a.cond)) continue;
       const av = a.v[o.level - 1];
       st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + scaledBonus(av, perFireScale(inst));
@@ -159,7 +161,7 @@ export class Battle {
     this.depth = (this.depth || 0) + 1;
     for (const o of this.f[i].items) {
       const on = ITEMS[o.id].on;
-      if (!on || o === src || !events.has(on.event) || (on.scope === 'adjacent' && !adjacent(o, src))) continue;
+      if (!on || o === src || !events.has(on.event) || (on.scope === 'adjacent' && !adjacent(o, src)) || !hasCat(src, on.cat)) continue;
       const L = o.level - 1, st = {};
       for (const [k, arr] of Object.entries(on.effects || {})) st[k] = arr[L];
       this.fx('activate', i, o);
@@ -215,12 +217,13 @@ export class Battle {
         for (const o of me.items) if (o !== inst && adjacent(o, inst) && tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o); }
         break;
       case 'buffAll':
-        for (const o of me.items) if (tagsOf(o).has(sp.tag)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o); }
+        for (const o of me.items) if ((!sp.tag || tagsOf(o).has(sp.tag)) && hasCat(o, sp.cat)) { o.bonus[sp.stat] = (o.bonus[sp.stat] || 0) + scaledBonus(sv, perFireScale(o)); this.fx('buff', i, o); }
         break;
-      case 'charge': { // give other items charge; full ones fire next tick. Charge-givers don't charge each other.
+      case 'charge': { // give items charge; full ones fire next tick. Charge-givers don't charge each other.
+        if (sp.scope === 'self') { this.addCharge(i, inst, sv, null, true); break; }
         for (const o of me.items) {
-          if (o === inst || !o.cost || (sp.tag && !tagsOf(o).has(sp.tag)) || ITEMS[o.id].special?.kind === 'charge') continue;
-          if (sp.scope === 'adjacent' ? !adjacent(inst, o) : !inScope(sp.scope, inst, o)) continue;
+          if (o === inst || !o.cost || (sp.tag && !tagsOf(o).has(sp.tag)) || !hasCat(o, sp.cat) || ITEMS[o.id].special?.kind === 'charge') continue;
+          if (!inScope(sp.scope, inst, o)) continue;
           this.fx('buff', i, o); this.addCharge(i, o, sv, null, true);
         }
         break;

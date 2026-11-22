@@ -236,8 +236,12 @@ export function adjacent(a, b) {
 export const sameRow = (a, b) => a.y < b.y + b.h && b.y < a.y + a.h;
 export const sameCol = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w;
 export function inScope(scope, a, b) {
-  return scope === 'row' ? sameRow(a, b) : scope === 'column' ? sameCol(a, b) : true;
+  return scope === 'row' ? sameRow(a, b) : scope === 'column' ? sameCol(a, b) : scope === 'adjacent' ? adjacent(a, b) : true;
 }
+// Categories: what an item IS (Melee, Clockwork, Treasure...). Items reference them in auras,
+// triggers, charge and "for each X you have" effects; `cat` on those filters by category.
+export const catsOf = inst => ITEMS[inst.id].cats || [];
+export const hasCat = (inst, cat) => !cat || catsOf(inst).includes(cat);
 export function canPlace(board, x, y, w, h, ignoreUid) {
   if (x < 0 || y < 0 || x + w > COLS || y + h > ROWS) return false;
   return !board.some(o => o.uid !== ignoreUid && x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h);

@@ -66,6 +66,8 @@ console.log('Bot diversity (items making up 80% of picks / top-5 share):',
   Object.entries(report.diversity).map(([s, d]) => `${s} ${d.itemsFor80pct} / ${pct(d.top5Share)}`).join('  '));
 console.log('Artifacts picked when offered:', report.artifacts.sort((a, b) => a.pickRate - b.pickRate)
   .map(a => `${a.name} ${pct(a.pickRate)}`).join(', '));
+console.log('By category (avg value per gold, items measured, strong/weak):');
+console.log('  ' + Object.entries(report.categories).sort((a, b) => b[1].vpg - a[1].vpg).map(([c, x]) => `${c} ${x.vpg.toFixed(2)} (${x.items}, ${x.strong}/${x.weak})`).join('  '));
 console.log('Fight length by day (median s [10%–90%], % reaching the storm at 30s):');
 console.log('  ' + Object.entries(report.fights).map(([d, f]) => `D${d} ${f.median.toFixed(0)}s [${f.p10.toFixed(0)}–${f.p90.toFixed(0)}] ${Math.round(f.storm * 100)}%`).join('  '));
 console.log('\nWrote data/balance-report.json. Open /balance.html with `npm run dev` for the sortable view.');

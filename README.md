@@ -45,6 +45,7 @@ game skips straight to the fight for now.
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
 | Start | Empty board, 12 gold. Buy your first items on Day 1. |
+| Categories | What an item *is*, separate from what it does: Melee, Ranged, Armor, Clockwork, Alchemy, Remedy, Flora, Beast, Hearth, Frost, Relic, Treasure, Herald, Landmark (`cats`, `CATEGORIES`). One or two per item. Effects filter by them with `cat`: `aura: { cat }` ("your Melee items get +Damage"), `on: { event: 'activate', cat }` ("when you use another Clockwork item"), `per: { cat, stat, v }` ("+N for each other Treasure item"), `special: { kind: 'charge', cat, scope }` ("charge your Flora items"). |
 | Rarity | Five tiers: Common (3g), Uncommon (5g), Rare (7g), Super Rare (10g), Legendary (15g). An item's price and look follow its current tier. |
 | Upgrading | Merging two copies of the same item at the same tier makes it one tier higher. Items start at their own rarity and can climb to Legendary; Legendaries can't be upgraded. Each item lists one value per reachable tier. |
 | Shop rank | Rank = day + Guild Charters bought. Rarity odds per rank in `RANK_ODDS`: 100% Common at rank 1, capping at 8/20/32/25/15 from rank 10. |
@@ -137,7 +138,7 @@ What it measures per item:
 - **Bot diversity**: how many items make up 80% of each skill level's picks. If experts collapse onto
   a few items, the bots are over-optimising and the numbers will mislead.
 
-Tuning helpers: `node tools/scale-stats.js poison=0.75 damage=1.15` scales a stat across every item; `node tools/calibrate-hp.js --write` re-fits max HP per day so fights last ~18s (rebuild the pool before and after).
+Tuning helpers: `node tools/scale-stats.js poison=0.75 damage=1.15` scales a stat across every item (add `--cat Clockwork` for one category; the balance report shows value by category); `node tools/calibrate-hp.js --write` re-fits max HP per day so fights last ~18s (rebuild the pool before and after).
 
 Other options: `--quick` (faster, noisier), `--set item.path=values`, `--set artifact:id.v=...`,
 `--only weak`.
