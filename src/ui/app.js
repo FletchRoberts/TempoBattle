@@ -4,9 +4,9 @@ import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
   def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
-  tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
+  tagsOf, statsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
-import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
+import { Fighter, Battle, previewStats, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
 import { SKILLS, skillEffects, skillsOfRarity } from '../data/skills.js';
@@ -168,9 +168,21 @@ export function describe(inst) {
   progBase = baseTier(inst.id);
   try { return describeLines(inst); } finally { progBase = null; }
 }
+const SCALE_FROM = { myShield: 'your Shield', myRegen: 'your Regen', enemyBurn: "the enemy's Burn", enemyPoison: "the enemy's Poison" };
 function describeLines(inst) {
   const d = def(inst), L = inst.level - 1, lines = [];
-  for (const k of STAT_ORDER) if (d.effects?.[k]) lines.push(`<li class="s-${k}">${STAT_TEXT[k](prog(d.effects[k], L))}</li>`);
+  const fin = FINALS.get(inst.uid) || statsOf(inst);
+  // Final numbers first (what it will actually do), base value alongside when something changed it.
+  for (const k of STAT_ORDER) {
+    const base = d.effects?.[k]?.[L] || 0, now = Math.round(fin[k] || 0);
+    if (!base && !now) continue;
+    if (!base && d.scale?.some(x => x.stat === k)) continue; // pure scaling items explain themselves below
+    lines.push(`<li class="s-${k}">${STAT_TEXT[k](`<span class="cur fin">${now}</span>`)}${now !== base ? ` <small class="base">base ${base}</small>` : ''}</li>`);
+  }
+  for (const sc of d.scale || []) {
+    const verb = { damage: 'Deal damage', heal: 'Heal', shield: 'Gain Shield', burn: 'Apply Burn', poison: 'Apply Poison' }[sc.stat] || STAT_NAME[sc.stat];
+    lines.push(`<li class="s-${sc.stat} s-scale">${verb} equal to ${prog(sc.v, L)}× ${SCALE_FROM[sc.from]} <small class="base">(counted when it fires)</small></li>`);
+  }
   if (d.special) { const SP = SPECIALS[d.special.kind]; lines.push(`<li class="s-special">${SP.text(d.special, prog(d.special.v, L, SP.fmt))}</li>`); }
   if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](`<span class="cur">${infusionAmount(inst)}</span>`)} (${Math.round(f.pct * 100)}% of this item's power)</li>`); }
   if (d.start) {
@@ -209,6 +221,8 @@ function describeLines(inst) {
     const m = MODIFIERS[id];
     lines.push(`<li class="s-${m.stat || 'multicast'} modded">${m.icon} ${m.name}: ${m.stat ? `+<span class="cur">${scaledBonus(m.v, perFireScale(inst))}</span> ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</li>`);
   }
+  const tiersLine = STAT_ORDER.filter(k => d.effects?.[k] && d.effects[k].length > 1).map(k => `${STAT_NAME[k]} ${prog(d.effects[k], L)}`);
+  if (tiersLine.length) lines.push(`<li class="s-tiers"><small>Base by tier: ${tiersLine.join(' · ')}</small></li>`);
   if (inst.multicast > 1) {
     const src = [(d.multicast || 1) > 1 && 'built in', isShiny(inst) && 'shiny'].filter(Boolean).join(' + ');
     lines.push(`<li class="s-multicast">Multicast <span class="cur">×${inst.multicast}</span>${src ? ` (${src})` : ''}: fires ${inst.multicast} times each time the bar hits it</li>`);
@@ -227,6 +241,18 @@ function setCell() {
   return cell;
 }
 
+// ===================== Final numbers =====================
+// FINALS: uid -> the item's numbers right now (shop: as a fight would start; fight: live).
+let FINALS = new Map();
+const CHIP_STATS = ['damage', 'burn', 'poison', 'shield', 'heal', 'regen', 'maxhp'];
+const STAT_ICON = { damage: '⚔', burn: '🔥', poison: '☠', shield: '🛡', heal: '✚', regen: '❋', maxhp: '♥' };
+const compact = n => (n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)));
+function statChips(st) {
+  if (!st) return '';
+  return CHIP_STATS.filter(k => st[k] > 0).slice(0, 2).map(k => `<i class="c-${k}" title="${STAT_NAME[k]}">${STAT_ICON[k]}${compact(st[k])}</i>`).join('');
+}
+function refreshFinals() { FINALS = S?.board ? previewStats([...S.board, ...S.bench], S.skills || []) : new Map(); }
+
 function itemEl(inst, scale = 'cell') {
   const d = def(inst);
   const e = el('div', `item r-${tierOf(inst)} t-${d.tags[0]}${isShiny(inst) ? ' shiny' : ''}`);
@@ -239,6 +265,7 @@ function itemEl(inst, scale = 'cell') {
     (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') +
     `<span class="badges">${inst.multicast > 1 ? `<i class="mc">×${inst.multicast}</i>` : ''}${inst.mods?.length ? `<i class="modc" title="Modifiers">+${inst.mods.length}</i>` : ''}</span>` +
     (isActive(d) ? `<span class="chg" title="Charge: fires at ${chargeCost(inst)}"><i></i></span>` : '') +
+    `<span class="stc">${statChips(FINALS.get(inst.uid))}</span>` +
     `<span class="flash"></span>`;
   e.title = `${d.name} (${RARITY[tierOf(inst)].name})`;
   return e;
@@ -358,6 +385,7 @@ function confirmLeave() {
 
 function render() {
   CELL = setCell();
+  if (S.phase !== 'pvp') refreshFinals();
   $('#hud').hidden = S.phase === 'title';
   if (S.phase === 'title') return renderTitle();
   renderHud();
@@ -529,6 +557,7 @@ function showInspector(target) {
     return;
   }
   const inst = target.inst, d = def(inst);
+  if (target.from === 'shop') { const m = previewStats([...S.board, inst], S.skills || []); FINALS.set(inst.uid, m.get(inst.uid)); }
   const tags = (d.cats || []).map(c => `<span class="tag cat" title="${CATEGORIES[c]}">${c}</span>`).join('') +
     [...tagsOf(inst)].map(t => `<span class="tag t-${t}">${TAG_NAME[t]}</span>`).join('');
   let actions = '', mergeHint = '';
@@ -632,7 +661,11 @@ function onDragUp(ev) {
 }
 function onHeldDown(ev) {
   ev.preventDefault(); ev.stopPropagation();
-  window.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, { capture: true, once: true });
+  // Swallow the click this press makes (so placing an item can't also press a button underneath),
+  // but only this one: if no click follows (the element under it was re-rendered), drop the guard.
+  const swallow = e => { e.preventDefault(); e.stopPropagation(); };
+  window.addEventListener('click', swallow, { capture: true, once: true });
+  window.addEventListener('pointerup', () => setTimeout(() => window.removeEventListener('click', swallow, true), 0), { capture: true, once: true });
   if (ev.button === 2) return cancelHeld();
   // Clicking Find opponent while holding something: put it away, then go fight.
   if (ev.target.closest?.('.btn.fight')) { cancelHeld(); return advancePhase(); }
@@ -853,7 +886,12 @@ function updateBattle(acc) {
       n.style.transform = `translateX(${Math.max(0, pos) * CELL}px)`;
     }
     for (const [id, n] of U.barEls) if (!alive.has(id)) { n.remove(); U.barEls.delete(id); }
-    for (const inst of F.items) if (inst.cost) U.items.get(inst.uid)?.style.setProperty('--c', Math.min(1, inst.charge / inst.cost));
+    for (const inst of F.items) {
+      const node = U.items.get(inst.uid); if (!node) continue;
+      if (inst.cost) node.style.setProperty('--c', Math.min(1, inst.charge / inst.cost));
+      const chips = statChips(B.computeStats(i, inst)), box = node.querySelector('.stc');
+      if (box && box.dataset.v !== chips) { box.innerHTML = chips; box.dataset.v = chips; }
+    }
   }
   ui.clock.innerHTML = `<span>${B.t.toFixed(1)}s</span>` + (B.storm ? `<b>Storm ${B.storm}/hit</b>` : `<small>storm at ${OVERTIME}s</small>`);
 }

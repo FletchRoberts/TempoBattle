@@ -8,6 +8,7 @@ export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed
 // Charge loops are allowed: fires set off by charge happen on the next tick, so a loop runs at a
 // steady pace instead of all at once. RUNAWAY_LIMIT only guards the browser against a runaway step.
 export const RUNAWAY_LIMIT = 400; // activations per side per tick
+export const MULTICAST_GAP = 0.15; // seconds between the activations of a multicast item
 export const BURN_TICK = 0.5;  // burn deals its stacks every 0.5s, then loses 1 stack
 export const OVERTIME = 30;    // storm starts after this many seconds
 export const STORM_BASE = 12;    // storm damage of the first hit
@@ -36,7 +37,7 @@ export class Fighter {
     this.bars = [{ id: uid(), pos: -0.5, temp: false }];
     for (const m of this.sk.multicast) for (const t of this.items) if (hasCat(t, m.cat)) t.extraMc += m.v; // skills like Echoing Steel
     this.speedPerm = 1 + this.sk.speed; this.hastes = []; this.slows = [];
-    this.ready = []; this.fired = 0;
+    this.ready = []; this.fired = 0; this.echoes = [];
   }
   speed(t) {
     let s = this.speedPerm;
@@ -57,7 +58,7 @@ export class Battle {
   step(dt = SIM_DT) {
     if (this.done) return;
     if (!this.started) { this.started = true; for (let i = 0; i < 2; i++) this.battleStart(i); }
-    for (let i = 0; i < 2; i++) { this.f[i].fired = 0; this.fireReady(i); }
+    for (let i = 0; i < 2; i++) { this.f[i].fired = 0; this.fireReady(i); this.fireEchoes(i); }
     this.t += dt;
     for (let i = 0; i < 2; i++) this.advance(i, dt);
     this.burnAcc += dt;
@@ -109,23 +110,47 @@ export class Battle {
     inst.charge -= inst.cost;
     const d = def(inst);
     if (d.accel) inst.cost = Math.max(d.minCharge ?? 1, inst.cost - d.accel); // speeds up each time it fires
-    for (let k = 0; k < (inst.multicast || 1) + inst.extraMc; k++) {
-      if (k > 0 && bar?.jump) break; // a rewind already sent this bar back
-      me.fired++;
-      this.activate(i, inst, bar);
-    }
+    me.fired++;
+    this.activate(i, inst, bar);
+    // Multicast: the extra activations follow MULTICAST_GAP apart (no extra charge involved).
+    for (let k = 1; k < (inst.multicast || 1) + inst.extraMc; k++) me.echoes.push({ inst, at: this.t + k * MULTICAST_GAP });
+  }
+  fireEchoes(i) {
+    const me = this.f[i]; if (!me.echoes.length) return;
+    const due = me.echoes.filter(e => e.at <= this.t + 1e-9); me.echoes = me.echoes.filter(e => e.at > this.t + 1e-9);
+    for (const e of due) { if (me.fired >= RUNAWAY_LIMIT) break; me.fired++; this.activate(i, e.inst, null); }
   }
   activate(i, inst, bar) {
     const me = this.f[i], d = def(inst), L = inst.level - 1, sp = d.special;
     this.fx('activate', i, inst);
     if (sp && sp.kind === 'amplify') return; // passive
-
+    const st = this.computeStats(i, inst);
+    if (st.gold) { // gold on trigger, capped per item per fight
+      const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
+      if (give) { inst.goldEarned += give; me.goldEarned += give; this.fx('float', i, `+${give}g`, 'gold'); }
+      delete st.gold;
+    }
+    const events = this.applyStats(i, st, 1);
+    if (sp) this.applySpecial(i, inst, sp, L, bar);
+    events.add('activate');
+    if (!this.depth) this.fireTriggers(i, inst, events);
+  }
+  // An item's numbers if it fired right now: base + infusion/mods + buffs gained this fight + "for each"
+  // + scaling from Shield/Regen/enemy Burn/Poison + auras + skills, times amplify. The game also uses
+  // this to show final numbers on items.
+  computeStats(i, inst) {
+    const me = this.f[i], foe = this.f[1 - i], d = def(inst), L = inst.level - 1;
     let mult = 1;
     for (const o of me.items) if (o !== inst && ITEMS[o.id].special?.kind === 'amplify' && adjacent(o, inst)) mult += ITEMS[o.id].special.v[o.level - 1];
     const st = statsOf(inst);
     for (const k in inst.bonus) st[k] = (st[k] || 0) + inst.bonus[k];
     // "+N for each other <category> item you have"
     if (d.per) { const n = me.items.filter(o => o !== inst && hasCat(o, d.per.cat)).length; st[d.per.stat] = (st[d.per.stat] || 0) + d.per.v[L] * n; }
+    // "Deal damage equal to N x your Shield / Regen / the enemy's Burn / Poison"
+    for (const sc of d.scale || []) {
+      const src = { myShield: me.shield, myRegen: me.regen, enemyBurn: foe.burn, enemyPoison: foe.poison }[sc.from] || 0;
+      st[sc.stat] = (st[sc.stat] || 0) + Math.round(sc.v[L] * src);
+    }
     // Auras from your other items: boost stats this item already has, by tag and condition.
     for (const o of me.items) {
       const a = ITEMS[o.id].aura;
@@ -139,15 +164,8 @@ export class Battle {
       if (!hasCat(inst, p.cat) || (p.tag && !tagsOf(inst).has(p.tag))) continue;
       for (const k of Object.keys(st)) if (k !== 'gold' && st[k] > 0 && (p.stat === '*' || p.stat === k)) st[k] *= 1 + p.v;
     }
-    if (st.gold) { // gold on trigger, capped per item per fight
-      const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
-      if (give) { inst.goldEarned += give; me.goldEarned += give; this.fx('float', i, `+${give}g`, 'gold'); }
-      delete st.gold;
-    }
-    const events = this.applyStats(i, st, mult, perFireScale(inst));
-    if (sp) this.applySpecial(i, inst, sp, L, bar);
-    events.add('activate');
-    if (!this.depth) this.fireTriggers(i, inst, events);
+    for (const k of Object.keys(st)) st[k] = k === 'gold' ? st[k] : Math.round(st[k] * mult);
+    return st;
   }
   condOk(i, cond) {
     const me = this.f[i], foe = this.f[1 - i];
@@ -301,4 +319,13 @@ export function simulate(itemsA, itemsB, hp, skillsA = [], skillsB = []) {
 export function duel(itemsA, itemsB, hp, skillsA = [], skillsB = []) {
   const pts = { win: 1, draw: 0.5, loss: 0 };
   return (pts[simulate(itemsA, itemsB, hp, skillsA, skillsB)] + (1 - pts[simulate(itemsB, itemsA, hp, skillsB, skillsA)])) / 2;
+}
+
+// Final numbers for every item on a board (with its skills), as they'd be when a fight starts:
+// Map uid -> { stat: value }. Used by the shop and inspector.
+export function previewStats(board, skills = [], hp = 1000) {
+  const B = new Battle(new Fighter('you', board, hp, skills), new Fighter('them', [], hp));
+  const out = new Map();
+  for (const inst of B.f[0].items) out.set(inst.uid, B.computeStats(0, inst));
+  return out;
 }

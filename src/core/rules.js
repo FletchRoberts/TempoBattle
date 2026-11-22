@@ -30,7 +30,7 @@ export const tierOf = inst => RARITIES[tierIndex(inst)];
 // Charge: the bar gives an item 1 charge each time it hits it; at its cost the item fires.
 // Passive items (only triggers, auras, gold, start effects or amplify) never charge.
 export const CHARGE_DEFAULT = 4;
-export const isActive = d => !!(d.effects && Object.keys(d.effects).length) || !!(d.special && d.special.kind !== 'amplify');
+export const isActive = d => !!(d.effects && Object.keys(d.effects).length) || !!d.scale?.length || !!(d.special && d.special.kind !== 'amplify');
 // Flat bonuses (infusions, modifiers, flat auras, buffs) land every time an item fires,
 // so they're scaled by how often it fires: a 2-charge item gets half, an 8-charge item double.
 // That keeps a +5 modifier worth the same per second on any item.

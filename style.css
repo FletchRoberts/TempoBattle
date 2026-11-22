@@ -418,3 +418,15 @@ button { font: inherit; color: inherit; }
 .art-list li.r-uncommon b { color: var(--r-uncommon); } .art-list li.r-rare b { color: var(--r-rare); }
 .art-list li.r-superrare b { color: var(--r-superrare); } .art-list li.r-legendary b { color: var(--r-legendary); }
 .art-list li.r-starter b { color: var(--accent); }
+
+/* ---------- Final numbers on tiles ---------- */
+.item .stc { position: absolute; left: 7px; bottom: 15px; display: flex; flex-direction: column; gap: 1px; z-index: 1; pointer-events: none; }
+.item .stc i { font-style: normal; font-family: var(--f-mono); font-size: 10px; font-weight: 600; line-height: 12px; padding: 0 3px; border-radius: 3px;
+  background: color-mix(in srgb, var(--bg) 75%, transparent); text-shadow: 0 1px 1px #000; white-space: nowrap; }
+.item .stc .c-damage { color: var(--c-damage); } .item .stc .c-burn { color: var(--c-fire); } .item .stc .c-poison { color: var(--c-poison); }
+.item .stc .c-shield { color: var(--c-shield); } .item .stc .c-heal { color: var(--c-heal); } .item .stc .c-regen { color: var(--c-regen); }
+.item .stc .c-maxhp { color: var(--c-heal); }
+.bench .item .stc { bottom: 4px; left: 3px; } .bench .item .stc i { font-size: 9px; line-height: 10px; }
+.effects .fin { font-size: 14px; }
+.effects .base { color: var(--muted); font-family: var(--f-mono); font-size: 11px; margin-left: 4px; }
+.effects .s-tiers { list-style: none; margin-left: -16px; color: var(--muted); }
