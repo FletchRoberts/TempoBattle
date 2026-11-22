@@ -30,14 +30,14 @@ export function buildPool({ seedsPerCombo = 2, baseSeed = 1, days = MAX_DAYS, sm
     if (!smart || !skill.lookahead) continue;
     const bench = day => (benchCache[`${day}:${skill.lookahead}`] ||=
       makeRng(day * 7919 + skill.lookahead).shuffle(bots.map(o => o.snaps[day - 1])).slice(0, skill.lookahead)
-      .map(sn => ({ items: fromSnapshot(sn.items), skills: sn.skills })));
+      .map(sn => ({ items: fromSnapshot(sn.items), skills: sn.skills, ctx: sn.ctx })));
     b.snaps = draftRun({ arch: ARCHETYPES[b.arch], skill, seed: b.seed, days, bench });
     onProgress(0, days);
   }
   const pool = { version: 1, generated: new Date().toISOString(), band: MATCH_BAND, days: {} };
   for (let day = 1; day <= days; day++) {
     const teams = bots.map(b => ({ id: `${b.id}-d${day}`, name: b.name, arch: b.arch, skill: b.skill, source: 'bot',
-      items: b.snaps[day - 1].items, skills: b.snaps[day - 1].skills }));
+      items: b.snaps[day - 1].items, skills: b.snaps[day - 1].skills, ctx: b.snaps[day - 1].ctx }));
     rateField(teams, day);
     pool.days[day] = teams;
     onProgress(day, days);
@@ -50,7 +50,7 @@ export function rateField(teams, day) {
   const hp = maxHp(day), boards = teams.map(t => fromSnapshot(t.items));
   const score = new Array(teams.length).fill(0);
   for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) {
-    const s = duel(boards[i], boards[j], hp, teams[i].skills, teams[j].skills);
+    const s = duel(boards[i], boards[j], hp, teams[i].skills, teams[j].skills, teams[i].ctx, teams[j].ctx);
     score[i] += s; score[j] += 1 - s;
   }
   teams.forEach((t, i) => { t.wr = +(score[i] / Math.max(1, teams.length - 1)).toFixed(3); });
@@ -58,10 +58,10 @@ export function rateField(teams, day) {
 }
 
 // Rate one new board (e.g. a player's) against an existing field without re-rating the field.
-export function rateAgainst(items, field, day, skills = []) {
+export function rateAgainst(items, field, day, skills = [], ctx = {}) {
   const hp = maxHp(day), me = fromSnapshot(items);
   let s = 0;
-  for (const t of field) s += duel(me, fromSnapshot(t.items), hp, skills, t.skills || []);
+  for (const t of field) s += duel(me, fromSnapshot(t.items), hp, skills, t.skills || [], ctx, t.ctx);
   return +(s / Math.max(1, field.length)).toFixed(3);
 }
 

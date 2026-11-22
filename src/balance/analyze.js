@@ -29,11 +29,11 @@ export function itemImpact(pool, { samples = 24, opps = 10, seed = 1, onProgress
   const days = Object.keys(pool.days).map(Number);
   const oppsByDay = {};
   for (const d of days) oppsByDay[d] = rng.shuffle([...pool.days[d]]).slice(0, opps)
-    .map(t => ({ id: t.id, items: fromSnapshot(t.items), skills: t.skills || [] }));
+    .map(t => ({ id: t.id, items: fromSnapshot(t.items), skills: t.skills || [], ctx: t.ctx }));
   const rate = (team, snap, day) => {
     const hp = maxHp(day), me = fromSnapshot(snap);
     let s = 0, n = 0;
-    for (const o of oppsByDay[day]) { if (o.id === team.id) continue; s += duel(me, o.items, hp, team.skills || [], o.skills); n++; }
+    for (const o of oppsByDay[day]) { if (o.id === team.id) continue; s += duel(me, o.items, hp, team.skills || [], o.skills, team.ctx, o.ctx); n++; }
     return n ? s / n : 0.5;
   };
   const baseCache = new Map();
@@ -166,7 +166,7 @@ export function fightLengths(pool, { pairs = 40, seed = 5 } = {}) {
     const ts = [];
     for (let k = 0; k < pairs; k++) {
       const a = rng.pick(teams), b = rng.pick(teams); if (a === b) continue;
-      const B = new Battle(new Fighter('a', fromSnapshot(a.items), maxHp(+day), a.skills || []), new Fighter('b', fromSnapshot(b.items), maxHp(+day), b.skills || []));
+      const B = new Battle(new Fighter('a', fromSnapshot(a.items), maxHp(+day), a.skills || [], a.ctx), new Fighter('b', fromSnapshot(b.items), maxHp(+day), b.skills || [], b.ctx));
       while (!B.done) B.step();
       ts.push(B.t);
     }

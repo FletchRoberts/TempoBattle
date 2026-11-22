@@ -84,12 +84,6 @@ export const SPECIALS = {
 // They're rare: an item sometimes rolls in the shop already infused, or a Wild Essence (random type) shows up.
 export const WILD_ESSENCE = { name: 'Wild Essence', icon: '🔮', price: 5 };
 // Shop tokens: like essences, they sometimes show up as shop offers and take effect when bought.
-export const SHOP_TOKENS = {
-  charter: { name: 'Guild Charter', icon: '📜', price: 6, chance: 0.12, rank: 1,
-             text: 'Shop rank +1 for the rest of the run' },
-  coupon:  { name: 'Coupon', icon: '🏷️', price: 0, chance: 0.15, halfOff: true,
-             text: 'Free: put one item in this shop on sale (half price). One Coupon per day.' },
-};
 // An infusion adds `pct` of the item's power (its per-fire numbers in damage terms, see STAT_WEIGHT)
 // as its own stat, so it scales with the item: big items get big infusions.
 export const INFUSIONS = {

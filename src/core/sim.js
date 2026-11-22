@@ -2,7 +2,7 @@
 // with a fixed timestep, so a matchup always has the same result everywhere.
 import { ITEMS } from '../data/items.js';
 import { skillEffects } from '../data/skills.js';
-import { COLS, def, statsOf, tagsOf, adjacent, inScope, hasCat, uid, isActive, chargeCost, perFireScale, scaledBonus } from './rules.js';
+import { COLS, def, statsOf, tagsOf, adjacent, inScope, hasCat, uid, isActive, chargeCost, perFireScale, scaledBonus, emptyCells } from './rules.js';
 
 export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 1.25s)
 // Charge loops are allowed: fires set off by charge happen on the next tick, so a loop runs at a
@@ -21,9 +21,10 @@ export const MIN_SPEED = 0.3;  // slows can't push a bar below this
 export const BURN_VS_SHIELD = 0.8;  // Burn deals only this much of its damage to Shield (1 = no reduction)
 
 export class Fighter {
-  constructor(name, items, hp, skills = []) {
-    this.sk = skillEffects(skills);
-    hp = Math.round(hp * (1 + this.sk.maxHp));
+  // ctx: the run so far ({ day, wins, livesLost, lives, gold, streak }) for skills that scale off it.
+  constructor(name, items, hp, skills = [], ctx = {}) {
+    this.sk = skillEffects(skills, { ...ctx, empty: emptyCells(items) });
+    hp = Math.round(hp * (1 + this.sk.maxHp)) + Math.round(this.sk.maxHpFlat);
     this.name = name; this.maxHp = hp; this.hp = hp;
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
     this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0,
@@ -160,11 +161,19 @@ export class Battle {
       const av = a.v[o.level - 1];
       st[a.stat] = a.pct ? st[a.stat] * (1 + av) : st[a.stat] + scaledBonus(av, perFireScale(inst));
     }
-    // Skills: "+X% <stat>" for matching items (by category / tag), on the stats this item has.
+    // Skills: "+X <stat>" (flat, scaled by charge cost) then "+X% <stat>", for matching items
+    // (by category / tag), on the stats this item already has.
+    for (const p of me.sk.flat) {
+      if (!st[p.stat] || !hasCat(inst, p.cat)) continue;
+      st[p.stat] += scaledBonus(p.v, perFireScale(inst));
+    }
+    // Percentages from different skills add up (+20% and +30% = +50%) rather than multiply.
+    const pctSum = {};
     for (const p of me.sk.pct) {
       if (!hasCat(inst, p.cat) || (p.tag && !tagsOf(inst).has(p.tag))) continue;
-      for (const k of Object.keys(st)) if (k !== 'gold' && st[k] > 0 && (p.stat === '*' || p.stat === k)) st[k] *= 1 + p.v;
+      for (const k of Object.keys(st)) if (k !== 'gold' && st[k] > 0 && (p.stat === '*' || p.stat === k)) pctSum[k] = (pctSum[k] || 0) + p.v;
     }
+    for (const k in pctSum) st[k] *= 1 + pctSum[k];
     for (const k of Object.keys(st)) st[k] = k === 'gold' ? st[k] : Math.round(st[k] * mult);
     return st;
   }
@@ -312,23 +321,31 @@ export class Battle {
 }
 
 // Run a full fight without visuals. Returns 'win' | 'loss' | 'draw' for side A.
-export function simulate(itemsA, itemsB, hp, skillsA = [], skillsB = []) {
-  const B = new Battle(new Fighter('A', itemsA, hp, skillsA), new Fighter('B', itemsB, hp, skillsB));
+export function simulate(itemsA, itemsB, hp, skillsA = [], skillsB = [], ctxA = {}, ctxB = {}) {
+  const B = new Battle(new Fighter('A', itemsA, hp, skillsA, ctxA), new Fighter('B', itemsB, hp, skillsB, ctxB));
   while (!B.done) B.step(SIM_DT);
   return B.result;
 }
 
 // Score A vs B from both seats (side 0 acts first within a tick), 0..1 for A.
-export function duel(itemsA, itemsB, hp, skillsA = [], skillsB = []) {
+export function duel(itemsA, itemsB, hp, skillsA = [], skillsB = [], ctxA = {}, ctxB = {}) {
   const pts = { win: 1, draw: 0.5, loss: 0 };
-  return (pts[simulate(itemsA, itemsB, hp, skillsA, skillsB)] + (1 - pts[simulate(itemsB, itemsA, hp, skillsB, skillsA)])) / 2;
+  return (pts[simulate(itemsA, itemsB, hp, skillsA, skillsB, ctxA, ctxB)] + (1 - pts[simulate(itemsB, itemsA, hp, skillsB, skillsA, ctxB, ctxA)])) / 2;
 }
 
 // Final numbers for every item on a board (with its skills), as they'd be when a fight starts:
-// Map uid -> { stat: value }. Used by the shop and inspector.
-export function previewStats(board, skills = [], hp = 1000) {
-  const B = new Battle(new Fighter('you', board, hp, skills), new Fighter('them', [], hp));
-  const out = new Map();
-  for (const inst of B.f[0].items) out.set(inst.uid, B.computeStats(0, inst));
+// Map uid -> { stat: value, mc: multicast }. Used by the shop and inspector. `bench` items are
+// previewed too but don't count as being on the board (empty cells, "for each X" items).
+export function previewStats(board, skills = [], hp = 1000, ctx = {}, bench = []) {
+  const B = new Battle(new Fighter('you', board, hp, skills, ctx), new Fighter('them', [], hp));
+  const out = new Map(), me = B.f[0];
+  for (const inst of me.items) out.set(inst.uid, { ...B.computeStats(0, inst), mc: (inst.multicast || 1) + inst.extraMc });
+  for (const b of bench) {
+    const inst = { ...b, bonus: {}, extraMc: 0, charge: 0 };
+    for (const m of me.sk.multicast) if (hasCat(inst, m.cat)) inst.extraMc += m.v;
+    me.items.push(inst);
+    out.set(b.uid, { ...B.computeStats(0, inst), mc: (inst.multicast || 1) + inst.extraMc });
+    me.items.pop();
+  }
   return out;
 }

@@ -1,10 +1,10 @@
 // Shop telemetry for the balance tool: what bots were offered and what they took.
 // Off unless a tool turns it on, so normal pool builds pay nothing for it.
-export const T = { on: false, offered: {}, bought: {}, artOffered: {}, artPicked: {}, modOffered: {}, modBought: {} };
+export const T = { on: false, offered: {}, bought: {}, artOffered: {}, artPicked: {}, modOffered: {}, modBought: {}, shopStyle: {} };
 
 export function resetTelemetry(on = true) {
   T.on = on;
-  for (const k of ['offered', 'bought', 'artOffered', 'artPicked', 'modOffered', 'modBought']) T[k] = {};
+  for (const k of ['offered', 'bought', 'artOffered', 'artPicked', 'modOffered', 'modBought', 'shopStyle']) T[k] = {};
 }
 export function tel(kind, id) {
   if (!T.on) return;

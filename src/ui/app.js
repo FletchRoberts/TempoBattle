@@ -1,15 +1,15 @@
 // Browser UI: shop, drag and drop, PvP battle playback. All rules come from src/core.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE, SHOP_TOKENS, CATEGORIES } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME, STAT_TEXT, STAT_ORDER, SPECIALS, ON_EVENT, AURA_COND, AURA_SCOPE, CATEGORIES } from '../data/items.js';
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop, couponTargets,
-  tagsOf, statsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop, rollShopChoices, styleName, styleText, SHOP_STYLES, topTier,
+  tagsOf, statsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, rarityWeights, offerPrice, oddsBracket, DAY_ODDS,
 } from '../core/rules.js';
 import { Fighter, Battle, previewStats, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
 import { ARCHETYPES } from '../bots/archetypes.js';
 import { MATCH_BAND } from '../bots/pool.js';
-import { SKILLS, skillEffects, skillsOfRarity } from '../data/skills.js';
+import { SKILLS, skillEffects, skillOffers, skillLevels, skillTier, maxSkillLevel, skillText } from '../data/skills.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -20,7 +20,7 @@ let store, rng, S;
 export function startApp(poolStore) {
   store = poolStore;
   window.addEventListener('resize', () => { if (S.phase === 'pvp') CELL = setCell(); else render(); });
-  window.addEventListener('keydown', e => { if (e.key !== 'Escape') return; closeModal(); if (S.couponPick != null) { S.couponPick = null; render(); } });
+  window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   S = { phase: 'title' };
   render();
 }
@@ -30,12 +30,38 @@ function newRun() {
   rng = makeRng(Date.now());
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
-    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, skills: [], skillPicks: ['starter'], rankBonus: 0, couponUsed: false, couponPick: null, hand: null,
+    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, skills: [], skillPicks: ['starter'], livesLost: 0, streak: 0, style: null, styleChoices: null, kept: [], hand: null,
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
-  S.shop = rollShop(S.day, rng, shopRank(S.day, S.rankBonus));
   render();
+}
+// What "per win / per life lost / per gold" skills see right now.
+const myCtx = () => ({ day: S.day, wins: S.wins, livesLost: S.livesLost, lives: S.lives, gold: S.gold, streak: S.streak });
+// Today's shop choice: 3 shop styles; picking one stocks the shop (keeping frozen offers).
+function renderStylePick() {
+  if (!S.styleChoices) S.styleChoices = rollShopChoices(S.day, rng, [...S.board, ...S.bench]);
+  const v = $('#view'); v.className = 'over'; v.innerHTML = '';
+  const card = el('section', 'panel over-card style-pick');
+  const odds = Object.entries(rarityWeights(S.day)).filter(([, p]) => p).map(([r, p]) => `${p}% ${RARITY[r].name}`).join(' · ');
+  card.innerHTML = `<p class="eyebrow">Day ${S.day}</p><h2>Choose today's shop</h2>
+    <p class="muted">The shop you pick holds for all of today's rerolls. Today's odds: ${odds}.</p>`;
+  const row = el('div', 'boons');
+  for (const st of S.styleChoices) {
+    const late = SHOP_STYLES[st.id].from > 1;
+    const btn = el('button', 'boon shop-style' + (late ? ' late' : ''), `<span class="b-ico">${SHOP_STYLES[st.id].icon}</span><b>${styleName(st)}</b><span>${styleText(st, S.day)}</span>`);
+    btn.type = 'button';
+    btn.onclick = () => {
+      S.style = st; S.styleChoices = null;
+      const fresh = rollShop(S.day, rng, st, [...S.board, ...S.bench]);
+      S.shop = [...S.kept.map(o => ({ ...o, frozen: true })), ...fresh.slice(S.kept.length)];
+      S.kept = []; render();
+    };
+    row.append(btn);
+  }
+  card.append(row);
+  v.append(card);
+  row.querySelector('button').focus();
 }
 
 // Move through the day: shop -> encounter (placeholder) -> pvp -> next day.
@@ -52,8 +78,8 @@ function nextDay(result) {
   if (S.myWr == null) rateMyBoard(); // in case Continue was clicked before the rating finished
   S.history.push({ day: S.day, result, opponent: S.opponent.name, oppWr: S.opponent.wr, myWr: S.myWr });
   S.myWr = null;
-  if (result === 'win') S.wins++;
-  if (result === 'loss') S.lives = Math.max(0, S.lives - lifeLoss(S.day));
+  if (result === 'win') { S.wins++; S.streak++; }
+  if (result === 'loss') { S.lives = Math.max(0, S.lives - lifeLoss(S.day)); S.livesLost += lifeLoss(S.day); S.streak = 0; }
   if (S.wins >= WINS_TO_CLEAR) { S.phase = 'over'; return render(); }
   if (S.lives <= 0) {
     if (S.lastStandUsed) { S.phase = 'over'; return render(); }
@@ -71,22 +97,17 @@ function fightPayout(result, commit) {
 }
 function advanceDay(result) {
   S.gold += fightPayout(result, true).total;
-  S.day++; S.rerolls = 0; S.couponUsed = false; S.couponPick = null;
+  S.day++; S.rerolls = 0;
   S.phase = 'shop';
-  // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
-  const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
-  const fresh = rollShop(S.day, rng, shopRank(S.day, S.rankBonus));
-  S.shop = [];
-  for (const kind of ['item', 'mod', 'essence', 'token']) {
-    const k = kept.filter(o => o.kind === kind), f = fresh.filter(o => o.kind === kind);
-    S.shop.push(...k.map(o => ({ ...o, frozen: true })), ...f.slice(k.length));
-  }
+  // A frozen shop keeps its unsold offers into the next day; the shop you pick fills the rest.
+  S.kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
+  S.style = null; S.styleChoices = null; S.shop = [];
   S.frozen = false;
   render();
 }
 
 const myMaxHp = () => Math.round(maxHp(S.day) * (1 + (S.bonusHpPct || 0)));
-const freeRerolls = () => skillEffects(S.skills).freeRerolls || 0;
+const freeRerolls = () => skillEffects(S.skills, myCtx()).freeRerolls || 0;
 const currentRerollCost = () => (S.rerolls < freeRerolls() ? 0 : rerollCost(S.rerolls - freeRerolls()));
 
 // ===================== Artifacts =====================
@@ -95,20 +116,22 @@ const RARITY_NAME = { starter: 'Starter', common: 'Common', uncommon: 'Uncommon'
 // Picks waiting to be made (S.skillPicks holds their rarities). Shown before the shop.
 function renderSkillPick() {
   const rarity = S.skillPicks[0];
-  if (!S.skillChoices) S.skillChoices = rng.shuffle(skillsOfRarity(rarity, S.skills)).slice(0, 3);
+  if (!S.skillChoices) S.skillChoices = rng.shuffle(skillOffers(rarity, S.skills)).slice(0, 3);
   if (!S.skillChoices.length) { S.skillPicks.shift(); S.skillChoices = null; return render(); } // none left of that rarity
   const v = $('#view'); v.className = 'over'; v.innerHTML = '';
   const starter = rarity === 'starter';
   const card = el('section', `panel over-card last-stand skill-pick r-${rarity}`);
   card.innerHTML = `<p class="eyebrow">${starter ? 'Start of run' : `${RARITY_NAME[rarity]} skill${S.skillPicks.length > 1 ? ` · ${S.skillPicks.length} to choose` : ''}`}</p>
     <h2>${starter ? 'Choose your starting skill' : 'Choose a skill'}</h2>
-    <p class="muted">${starter ? "Starting skills can't be found later. Each points at a build." : 'You earned this by upgrading an item. Skills last the whole run.'}</p>`;
+    <p class="muted">${starter ? "Starting skills can't be found later. Each points at a build." : 'You earned this by upgrading an item. Picking a skill you already have levels it up a rarity tier.'}</p>`;
   const row = el('div', 'boons');
+  const lv = skillLevels(S.skills);
   for (const id of S.skillChoices) {
-    const a = SKILLS[id];
-    const btn = el('button', `boon skill r-${a.rarity}`, `<span class="b-ico">${a.icon}</span><b>${a.name}</b><span class="chip rar">${RARITY_NAME[a.rarity]}</span><span class="a-text">${a.text}</span>`);
+    const a = SKILLS[id], next = (lv[id] || 0) + 1, tier = skillTier(id, next);
+    const tag = lv[id] ? `<span class="chip lvup">Level ${lv[id]} → ${next}</span>` : '';
+    const btn = el('button', `boon skill r-${tier}`, `<span class="b-ico">${a.icon}</span><b>${a.name}</b><span class="chip rar">${RARITY_NAME[tier]}</span>${tag}<span class="a-text">${skillText(id, next, myCtx())}</span>`);
     btn.type = 'button';
-    btn.onclick = () => { S.skills.push(id); S.skillPicks.shift(); S.skillChoices = null; toast(`${a.name} learned`); render(); };
+    btn.onclick = () => { S.skills.push(id); S.skillPicks.shift(); S.skillChoices = null; toast(lv[id] ? `${a.name} is now level ${next}` : `${a.name} learned`); render(); };
     row.append(btn);
   }
   card.append(row);
@@ -120,11 +143,16 @@ function skillsPanel() {
   p.append(el('h3', '', 'Skills'));
   if (!S.skills.length) { p.append(el('p', 'muted', 'Upgrade an item (merge two copies) to choose a skill of its rarity.')); return p; }
   const ul = el('ul', 'art-list');
-  for (const id of S.skills) { const a = SKILLS[id]; ul.append(el('li', `r-${a.rarity}`, `<span class="a-ico">${a.icon}</span><div><b>${a.name} <small>${RARITY_NAME[a.rarity]}</small></b><span class="a-text">${a.text}</span></div>`)); }
+  for (const [id, lvl] of Object.entries(skillLevels(S.skills))) {
+    const a = SKILLS[id], tier = skillTier(id, lvl), max = maxSkillLevel(id);
+    const pips = max > 1 ? `<span class="pips sk-pips">${Array.from({ length: max }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</span>` : '';
+    ul.append(el('li', `r-${tier}`, `<span class="a-ico">${a.icon}</span><div><b>${a.name} <small>${RARITY_NAME[tier]}${max > 1 ? ` · Lv ${lvl}` : ''}</small>${pips}</b><span class="a-text">${skillText(id, lvl, myCtx())}</span></div>`));
+  }
   p.append(ul);
   return p;
 }
-const skillIcons = ids => (ids || []).map(id => `<span title="${SKILLS[id]?.name}: ${SKILLS[id]?.text}">${SKILLS[id]?.icon ?? ''}</span>`).join('');
+const skillIcons = (ids, ctx) => Object.entries(skillLevels(ids || [])).map(([id, lvl]) =>
+  `<span class="sk-ico" title="${SKILLS[id].name}${lvl > 1 ? ` (Lv ${lvl})` : ''}: ${skillText(id, lvl, ctx)}">${SKILLS[id].icon}${lvl > 1 ? `<sup>${lvl}</sup>` : ''}</span>`).join('');
 
 // ===================== Last Stand =====================
 // The first time you run out of lives you pick one rare boon and keep going on 1 life.
@@ -216,6 +244,7 @@ function describeLines(inst) {
     lines.push(`<li class="s-aura"><b>Passive:</b> ${who} get ${what}${a.cond ? ' ' + AURA_COND[a.cond] : ''}${a.stat && !a.pct ? ` (if they have ${STAT_NAME[a.stat]})` : ''}</li>`);
   }
   if (d.per) lines.push(`<li class="s-${d.per.stat}">+${prog(d.per.v, L)} ${STAT_NAME[d.per.stat]} for each other ${d.per.cat} item you have</li>`);
+  for (const [k, v] of Object.entries(inst.extra || {})) lines.push(`<li class="s-${k} modded">🔨 Built in by the shop: +<span class="cur">${v}</span> ${STAT_NAME[k]} (included above)</li>`);
   if (d.goldCap) lines.push(`<li class="s-gold">Earns up to ${prog(d.goldCap, L)} gold per fight</li>`);
   for (const id of inst.mods || []) {
     const m = MODIFIERS[id];
@@ -223,9 +252,10 @@ function describeLines(inst) {
   }
   const tiersLine = STAT_ORDER.filter(k => d.effects?.[k] && d.effects[k].length > 1).map(k => `${STAT_NAME[k]} ${prog(d.effects[k], L)}`);
   if (tiersLine.length) lines.push(`<li class="s-tiers"><small>Base by tier: ${tiersLine.join(' · ')}</small></li>`);
-  if (inst.multicast > 1) {
-    const src = [(d.multicast || 1) > 1 && 'built in', isShiny(inst) && 'shiny'].filter(Boolean).join(' + ');
-    lines.push(`<li class="s-multicast">Multicast <span class="cur">×${inst.multicast}</span>${src ? ` (${src})` : ''}: fires ${inst.multicast} times each time the bar hits it</li>`);
+  const mc = fin.mc ?? inst.multicast;
+  if (mc > 1) {
+    const src = [(d.multicast || 1) > 1 && 'built in', isShiny(inst) && 'shiny', mc > inst.multicast && `+${mc - inst.multicast} from your items and skills`].filter(Boolean).join(' + ');
+    lines.push(`<li class="s-multicast">Multicast <span class="cur fin">×${mc}</span>${src ? ` (${src})` : ''}: fires ${mc} times each time its charge fills</li>`);
   }
   return lines.join('');
 }
@@ -251,7 +281,7 @@ function statChips(st) {
   if (!st) return '';
   return CHIP_STATS.filter(k => st[k] > 0).slice(0, 2).map(k => `<i class="c-${k}" title="${STAT_NAME[k]}">${STAT_ICON[k]}${compact(st[k])}</i>`).join('');
 }
-function refreshFinals() { FINALS = S?.board ? previewStats([...S.board, ...S.bench], S.skills || []) : new Map(); }
+function refreshFinals() { FINALS = S?.board ? previewStats(S.board, S.skills || [], myMaxHp(), myCtx(), S.bench) : new Map(); }
 
 function itemEl(inst, scale = 'cell') {
   const d = def(inst);
@@ -261,9 +291,11 @@ function itemEl(inst, scale = 'cell') {
   e.style.height = `calc(var(--${scale}) * ${inst.h})`;
   if (inst.x >= 0 && scale === 'cell') { e.style.left = `calc(var(--cell) * ${inst.x})`; e.style.top = `calc(var(--cell) * ${inst.y})`; }
   const pips = maxLevel(inst) > 1 ? Array.from({ length: maxLevel(inst) }, (_, i) => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('') : '';
+  // Multicast as it will fight: its own + shiny + auras and skills (fights carry extraMc).
+  const mc = inst.extraMc != null ? (inst.multicast || 1) + inst.extraMc : FINALS.get(inst.uid)?.mc ?? inst.multicast;
   e.innerHTML = `<span class="ico">${d.icon}</span><span class="pips">${pips}</span>` +
     (inst.infusion ? `<span class="inf">${INFUSIONS[inst.infusion].icon}</span>` : '') +
-    `<span class="badges">${inst.multicast > 1 ? `<i class="mc">×${inst.multicast}</i>` : ''}${inst.mods?.length ? `<i class="modc" title="Modifiers">+${inst.mods.length}</i>` : ''}</span>` +
+    `<span class="badges">${mc > 1 ? `<i class="mc${mc > inst.multicast ? ' boosted' : ''}" title="Multicast: fires ${mc} times each time it fires">×${mc}</i>` : ''}${inst.mods?.length ? `<i class="modc" title="Modifiers">+${inst.mods.length}</i>` : ''}</span>` +
     (isActive(d) ? `<span class="chg" title="Charge: fires at ${chargeCost(inst)}"><i></i></span>` : '') +
     `<span class="stc">${statChips(FINALS.get(inst.uid))}</span>` +
     `<span class="flash"></span>`;
@@ -303,7 +335,7 @@ function renderHud() {
       <div><dt>Day</dt><dd>${S.day}</dd></div>
       <div><dt>Wins</dt><dd>${S.wins}<small>/${WINS_TO_CLEAR}</small></dd></div>
       <div title="Lives lost on a defeat today"><dt>Lives · loss −${lifeLoss(S.day)}</dt><dd>${lives}</dd></div>
-      <div><dt>Max HP</dt><dd>${Math.round(myMaxHp() * (1 + skillEffects(S.skills).maxHp))}</dd></div>
+      <div><dt>Max HP</dt><dd>${(sk => Math.round(myMaxHp() * (1 + sk.maxHp)) + Math.round(sk.maxHpFlat))(skillEffects(S.skills, myCtx()))}</dd></div>
       <div class="gold"><dt>Gold</dt><dd>${S.gold}</dd></div>
     </dl>
     <div class="hud-btns"><button type="button" class="btn ghost sm" id="help-btn">How to play</button>
@@ -347,16 +379,15 @@ function modal(html, cls = '') {
 function showHelp() {
   const m = modal(`<h2>How to play</h2>
     <ol class="steps">
-      <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Click an item to buy it; it goes to your bench. The shop's rank rises each day and shows the odds of each rarity (Common, Uncommon, Rare, Super Rare, Legendary): all Common at rank 1, better items later. Now and then an item is half price, and sometimes a Guild Charter (+1 shop rank) or Coupon (cheaper items today) shows up.</li>
+      <li><b>Shop.</b> You start with an empty board and ${START_GOLD} gold. Each day you choose 1 of 3 shops to visit: a General Store, a shop for one category or one item size, and later on better ones like a Clearance Sale, an Armory whose weapons come with bonus Damage, a Curio Dealer with rarer odds or a Gilded Hall where everything is shiny. Click an item to buy it; it goes to your bench. Days 1–2 sell only Commons; Uncommons join on Day 3, Rares on Day 5, Super Rares on Day 7 and Legendaries on Day 9. Now and then an item is half price.</li>
       <li><b>Place it.</b> Click it to pick it up, then click a spot on the 3 × 5 grid (or drag it). Dropping it on another item swaps them. R or the Rotate button turns it; Esc puts it back.</li>
       <li><b>Charge.</b> In a fight a bar sweeps left to right (${COL_TIME}s per column) and loops. Each time it passes an item, the item gains 1 charge; when its yellow charge bar fills, it fires. Most items need ${CHARGE_DEFAULT} charges, quick ones fewer, heavy ones more; some need fewer as they're upgraded or every time they fire. Items like Dynamo give other items charge.</li>
       <li><b>Upgrade by merging.</b> Drop an item on an identical one of the same rarity, on the board or bench, to make one item a rarity tier higher: Common → Uncommon → Rare → Super Rare → Legendary. Legendaries are already at the top and can't be upgraded. Items like Bellows and Whetstone boost the items touching them.</li>
       <li><b>Freeze.</b> Like what's in the shop but can't afford it? Freeze the shop and the unsold offers will still be there after the fight.</li>
       <li><b>Shiny items.</b> Rarely an item rolls shiny: +${SHINY_BONUS} multicast, so it fires an extra time every time the bar hits it. Some items multicast on their own. Merging keeps the shine.</li>
-      <li><b>Echo Rune.</b> Rarely the shop sells an Echo Rune: click it below your bench, then click an item to give it +1 multicast.</li>
-      <li><b>Infuse.</b> Rarely a Wild Essence appears: it gives an item a random extra effect that scales with its level. Some shop items come already infused.</li>
+      <li><b>Infused items.</b> Some shop items come infused with an essence: a random extra effect that scales with the item.</li>
       <li><b>Fight.</b> Press Find opponent. You face another board from the same day. Win to score, lose and you drop a life.</li>
-      <li><b>Skills.</b> You start a run by choosing 1 of 3 starting skills, which can't be found later. Every time you upgrade an item you choose 1 of 3 skills of the item's rarity before the upgrade (Common → Uncommon gives a Common skill). Skills last the whole run: things like "your Melee items deal +15% damage" or "your bar is 10% faster".</li>
+      <li><b>Skills.</b> You start a run by choosing 1 of 3 starting skills, which can't be found later. Every time you upgrade an item you choose 1 of 3 skills of the item's rarity before the upgrade (Common → Uncommon gives a Common skill). Picking a skill you already have levels it up a rarity tier, like merging an item. Skills last the whole run: Common ones add flat amounts ("your Melee items deal +12 damage"), rarer ones percentages, and some grow with your run ("+3 damage for each win", "+4 damage for each life you've lost").</li>
       <li><b>Categories.</b> Every item is one or two kinds of thing (Melee, Clockwork, Treasure, Beast...). Many items care about them: "When you use another Clockwork item", "+Damage for each Treasure you have", "your Melee items get +Damage".</li>
       <li><b>Gold.</b> Some items pay out after fights just for being on your board, others earn gold each time they fire (up to a cap per fight). Artifacts like Tithe and Compound Interest add more.</li>
       <li><b>Rows and columns.</b> Some items boost the other items in their row or column, like War Drum (+Damage to its column) or Conductor's Baton (+1 multicast to its column).</li>
@@ -389,7 +420,7 @@ function render() {
   $('#hud').hidden = S.phase === 'title';
   if (S.phase === 'title') return renderTitle();
   renderHud();
-  if (S.phase === 'shop') { if (S.skillPicks?.length) return renderSkillPick(); renderShop(); }
+  if (S.phase === 'shop') { if (S.skillPicks?.length) return renderSkillPick(); if (!S.style) return renderStylePick(); renderShop(); }
   else if (S.phase === 'encounter') renderEncounter();
   else if (S.phase === 'pvp') renderBattle();
   else if (S.phase === 'laststand') renderLastStand();
@@ -403,51 +434,33 @@ function renderShop() {
   const left = el('div', 'col-main'), right = el('aside', 'col-side');
 
   const offers = el('section', 'panel offers');
-  const rank = shopRank(S.day, S.rankBonus), odds = rarityWeights(rank), picking = S.couponPick != null;
+  const boost = SHOP_STYLES[S.style.id].boost || 0, odds = rarityWeights(S.day, boost);
+  const nextAt = DAY_ODDS[oddsBracket(S.day) + 1]?.[0];
   const oddsHtml = Object.entries(odds).map(([r, p]) => `<span class="odd r-${r}" title="${RARITY[r].name}"><i style="width:${p}%"></i><b>${p}%</b> ${RARITY[r].name}</span>`).join('');
-  offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="rank-chip" title="Rises by 1 each day. Guild Charters raise it more.">Rank ${rank}${rank >= MAX_RANK ? ' · max odds' : ''}</span>
-    ${picking ? `<span class="chip coupon-chip">🏷️ Pick an item to put on sale · Esc to cancel</span>` : `<span class="hint">Click to buy. Drop an item on its twin to level it up.</span>`}
-    <div class="odds" aria-label="Rarity odds at this rank">${oddsHtml}</div>`));
+  offers.append(el('header', 'panel-h', `<h2>${SHOP_STYLES[S.style.id].icon} ${styleName(S.style)}</h2><span class="rank-chip" title="${styleText(S.style, S.day)}">${styleText(S.style, S.day)}</span>
+    <span class="hint">Click to buy. Drop an item on its twin to level it up.${nextAt ? ` Rarer items from Day ${nextAt}.` : ''}</span>
+    <div class="odds" aria-label="Rarity odds today">${oddsHtml}</div>`));
   const row = el('div', 'offer-row');
   S.shop.forEach((o, idx) => {
     const price = offerPrice(o);
     const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (price > S.gold && !o.sold ? ' poor' : '') + (o.sale && !o.sold ? ' on-sale' : ''));
     c.type = 'button';
-    if (o.kind === 'item') {
-      const d = def(o.inst);
-      c.classList.add('r-' + tierOf(o.inst));
-      if (isShiny(o.inst)) c.classList.add('shiny');
-      c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-cats">${(d.cats || []).join(' · ')}</span><span class="o-meta"><b class="rar">${RARITY[tierOf(o.inst)].name}</b>${o.inst.level > 1 ? ' <span class="upg">upgraded</span>' : ''}` +
-        `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}` +
-        `${o.inst.infusion ? ` <b class="inf-tag" title="${INFUSIONS[o.inst.infusion].name}">${INFUSIONS[o.inst.infusion].icon} Infused</b>` : ''}</span>`;
-      const shape = el('span', 'shape');
-      shape.style.gridTemplateColumns = `repeat(${o.inst.w}, 8px)`;
-      for (let k = 0; k < o.inst.w * o.inst.h; k++) shape.append(el('i'));
-      c.append(shape);
-      c.onmouseenter = c.onfocus = () => showInspector({ inst: o.inst, from: 'shop' });
-    } else if (o.kind === 'mod') {
-      const m = MODIFIERS[o.id];
-      c.classList.add('mod');
-      c.innerHTML = `<span class="o-ico">${m.icon}</span><span class="o-name">${m.name}</span><span class="o-meta">Modifier: ${m.stat ? `+${m.v} ${STAT_NAME[m.stat]}` : `+${m.multicast} multicast`}</span>`;
-      c.onmouseenter = c.onfocus = () => showInspector({ mod: o.id });
-    } else if (o.kind === 'token') {
-      const t = SHOP_TOKENS[o.id];
-      c.classList.add('essence', 'token');
-      if (t.halfOff && S.couponUsed && !o.sold) c.classList.add('used-up');
-      if (picking && idx === S.couponPick) c.classList.add('coupon-on');
-      c.innerHTML = `<span class="o-ico">${t.icon}</span><span class="o-name">${t.name}</span><span class="o-meta">${t.text}</span>`;
-      c.onmouseenter = c.onfocus = () => showInspector({ token: o.id });
-    } else {
-      c.classList.add('essence');
-      c.innerHTML = `<span class="o-ico">${WILD_ESSENCE.icon}</span><span class="o-name">${WILD_ESSENCE.name}</span><span class="o-meta">Random infusion</span>`;
-      c.onmouseenter = c.onfocus = () => showInspector({ essence: true });
-    }
+    const d = def(o.inst);
+    c.classList.add('r-' + tierOf(o.inst));
+    if (isShiny(o.inst)) c.classList.add('shiny');
+    const extra = Object.entries(o.inst.extra || {}).map(([k, x]) => ` <b class="bonus-tag">+${x} ${STAT_NAME[k]}</b>`).join('');
+    c.innerHTML = `<span class="o-ico">${d.icon}</span><span class="o-name">${d.name}</span><span class="o-cats">${(d.cats || []).join(' · ')}</span><span class="o-meta"><b class="rar">${RARITY[tierOf(o.inst)].name}</b>${o.inst.level > 1 ? ' <span class="upg">upgraded</span>' : ''}` +
+      `${isShiny(o.inst) ? ` <b class="shiny-tag">Shiny ×${o.inst.multicast}</b>` : ''}` +
+      `${o.inst.infusion ? ` <b class="inf-tag" title="${INFUSIONS[o.inst.infusion].name}">${INFUSIONS[o.inst.infusion].icon} Infused</b>` : ''}${extra}</span>`;
+    const shape = el('span', 'shape');
+    shape.style.gridTemplateColumns = `repeat(${o.inst.w}, 8px)`;
+    for (let k = 0; k < o.inst.w * o.inst.h; k++) shape.append(el('i'));
+    c.append(shape);
+    c.onmouseenter = c.onfocus = () => showInspector({ inst: o.inst, from: 'shop' });
     if (o.frozen && !o.sold) c.classList.add('was-frozen');
     if (S.frozen && !o.sold) c.classList.add('frozen');
-    const full = o.kind === 'item' && price < o.price ? ` <s>${o.price}g</s>` : '';
-    if (picking && couponTargets(S.shop).includes(o)) c.classList.add('coupon-target');
-    const usedUp = o.kind === 'token' && SHOP_TOKENS[o.id].halfOff && S.couponUsed;
-    c.append(el('span', 'price', o.sold ? 'Sold' : usedUp ? 'Used one today' : `${price ? price + 'g' : 'Free'}${full}${o.sale ? ' <b class="sale-tag">½ price</b>' : ''}`));
+    const list = priceOf(o.inst), full = price < list ? ` <s>${list}g</s>` : '';
+    c.append(el('span', 'price', o.sold ? 'Sold' : `${price}g${full}${o.sale ? ' <b class="sale-tag">½ price</b>' : ''}`));
     c.onclick = () => buy(idx);
     row.append(c);
   });
@@ -455,7 +468,7 @@ function renderShop() {
   const rc = currentRerollCost();
   const reroll = el('button', 'btn ghost', `Reroll · ${rc ? rc + 'g' : 'free'}`); reroll.type = 'button';
   reroll.disabled = S.gold < rc;
-  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng, shopRank(S.day, S.rankBonus)); render(); };
+  reroll.onclick = () => { const c = currentRerollCost(); if (S.gold < c) return; S.gold -= c; S.rerolls++; S.frozen = false; S.shop = rollShop(S.day, rng, S.style, [...S.board, ...S.bench]); render(); };
   const freeze = el('button', 'btn ghost freeze' + (S.frozen ? ' on' : ''), S.frozen ? '❄ Frozen' : 'Freeze shop'); freeze.type = 'button';
   freeze.setAttribute('aria-pressed', S.frozen);
   freeze.title = 'Keep the unsold offers for the next shop';
@@ -535,12 +548,6 @@ const findOwned = u => S.board.find(o => o.uid === u) || S.bench.find(o => o.uid
 
 function showInspector(target) {
   const p = $('.inspector'); if (!p) return;
-  if (target?.token) {
-    const t = SHOP_TOKENS[target.token];
-    p.innerHTML = `<div class="ins-h"><span class="ins-ico">${t.icon}</span><div><h3>${t.name}</h3><span class="chip">Shop token</span></div></div>
-      <p>${t.text}.</p><p class="muted">Takes effect as soon as you buy it.</p>`;
-    return;
-  }
   if (!target || (!target.inst && !target.essence && !target.mod)) {
     const pend = S.pending != null ? `<p class="callout">Click an item on your board or bench to use it on.</p>` : '';
     p.innerHTML = `<h3>Inspector</h3><p class="muted">Hover an item to see what it does. Click one of yours to rotate or sell it.</p>${pend}`;
@@ -561,7 +568,7 @@ function showInspector(target) {
     return;
   }
   const inst = target.inst, d = def(inst);
-  if (target.from === 'shop') { const m = previewStats([...S.board, inst], S.skills || []); FINALS.set(inst.uid, m.get(inst.uid)); }
+  if (target.from === 'shop') FINALS.set(inst.uid, previewStats(S.board, S.skills || [], myMaxHp(), myCtx(), [inst]).get(inst.uid));
   const tags = (d.cats || []).map(c => `<span class="tag cat" title="${CATEGORIES[c]}">${c}</span>`).join('') +
     [...tagsOf(inst)].map(t => `<span class="tag t-${t}">${TAG_NAME[t]}</span>`).join('');
   let actions = '', mergeHint = '';
@@ -589,26 +596,9 @@ function showInspector(target) {
 
 function buy(idx) {
   const o = S.shop[idx], price = offerPrice(o);
-  if (S.couponPick != null) { // choosing the item a Coupon puts on sale
-    if (idx === S.couponPick) { S.couponPick = null; return render(); }
-    if (!couponTargets(S.shop).includes(o)) return toast('Pick an item offer that is not already on sale.');
-    o.sale = true; S.shop[S.couponPick].sold = true; S.couponUsed = true; S.couponPick = null;
-    toast(`${def(o.inst).name} is now half price.`); return render();
-  }
-  if (o.kind === 'token' && SHOP_TOKENS[o.id].halfOff && !o.sold) {
-    if (S.couponUsed) return toast('You already used a Coupon today.');
-    if (!couponTargets(S.shop).length) return toast('No item here to put on sale.');
-    S.couponPick = idx; return render();
-  }
   if (o.sold || S.gold < price) return;
-  if (o.kind === 'item') {
-    if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
-    S.bench.push({ ...o.inst, mods: [...(o.inst.mods || [])] }); // a copy, so later merges don't change the sold card
-  } else if (o.kind === 'token') {
-    const t = SHOP_TOKENS[o.id];
-    if (t.rank) S.rankBonus += t.rank;
-    toast(`${t.name}: ${t.text}`);
-  } else S.consumables.push(o.kind === 'mod' ? { kind: 'mod', id: o.id } : { kind: 'essence' });
+  if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
+  S.bench.push({ ...o.inst, mods: [...(o.inst.mods || [])], extra: o.inst.extra && { ...o.inst.extra } }); // a copy, so later merges don't change the sold card
   S.gold -= price; o.sold = true; render();
 }
 function sellInst(inst) {
@@ -823,8 +813,9 @@ function startBattle() {
   S.opponent = opp; S.faced.add(opp.id);
   S.mySnapshot = snapshot(S.board);
   const hp = maxHp(S.day);
-  S.battle = new Battle(new Fighter('You', S.board, myMaxHp(), S.skills),
-    new Fighter(opp.name, fromSnapshot(opp.items), hp, opp.skills || []), onFx);
+  S.myCtx = myCtx();
+  S.battle = new Battle(new Fighter('You', S.board, myMaxHp(), S.skills, S.myCtx),
+    new Fighter(opp.name, fromSnapshot(opp.items), hp, opp.skills || [], opp.ctx), onFx);
   S.selected = null; S.pending = null;
   S.phase = 'pvp'; render();
 }
@@ -842,7 +833,7 @@ function renderBattle() {
     const panel = el('section', 'panel fighter' + (i ? ' is-enemy' : ''));
     const head = el('header', 'f-head');
     const sub = i ? `<span class="opp-meta">${oppLabel(o)} · rated <b>${pct(o.wr)}</b></span>` : '';
-    const arts = skillIcons(i ? o.skills : S.skills);
+    const arts = skillIcons(i ? o.skills : S.skills, i ? o.ctx : S.myCtx);
     head.innerHTML = `<div class="f-name"><h2>${i ? F.name : 'You'}</h2>${sub}${arts ? `<span class="f-arts">${arts}</span>` : ''}<span class="speed"></span></div>
       <div class="hp"><div class="hp-fill"></div><div class="hp-shield"></div><span class="hp-text"></span></div>
       <div class="status"></div><div class="floats"></div>`;
@@ -983,7 +974,7 @@ function showResult(res) {
   }, 30);
 }
 function rateMyBoard() {
-  const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot, skills: [...S.skills] });
+  const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot, skills: [...S.skills], ctx: S.myCtx });
   S.myWr = team.wr;
 }
 

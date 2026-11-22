@@ -137,14 +137,18 @@ button { font: inherit; color: inherit; }
 .item .pips i { width: 5px; height: 5px; border-radius: 50%; background: var(--line); }
 .item .pips i.on { background: var(--fg); }
 .item .inf { position: absolute; top: 6px; right: 7px; font-size: 11px; }
-.item .flash { position: absolute; inset: 3px; border-radius: 5px; pointer-events: none; opacity: 0; background: var(--accent); }
+.item .flash { position: absolute; inset: -6px; border-radius: 10px; pointer-events: none; opacity: 0; z-index: 2;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.85), color-mix(in srgb, var(--accent) 80%, transparent) 70%, transparent);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 22px 6px var(--accent); }
 .item.dragging { opacity: 0.3; }
 .item.ghost { position: fixed; z-index: 100; pointer-events: none; opacity: 0.85; }
-.item.pulse .flash { animation: pulse 0.45s ease-out; }
-.item.pulse { animation: bump 0.34s ease-out; z-index: 6; }
+.item.pulse .flash { animation: pulse 0.5s ease-out; }
+.item.pulse { animation: bump 0.4s ease-out; z-index: 6; }
+.item.pulse .ico { animation: icopop 0.45s cubic-bezier(.2, 1.6, .4, 1); z-index: 3; }
 .item.buffed::before { animation: buff 0.6s ease-out; }
-@keyframes pulse { from { opacity: 0.7; } to { opacity: 0; } }
-@keyframes bump { 35% { transform: scale(1.18); filter: drop-shadow(0 0 10px var(--accent)) brightness(1.25); } }
+@keyframes pulse { 0% { opacity: 0.95; transform: scale(0.92); } 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes bump { 30% { transform: scale(1.24); filter: drop-shadow(0 0 16px var(--accent)) brightness(1.4); } }
+@keyframes icopop { 0% { transform: scale(1); } 30% { transform: scale(1.75) rotate(-8deg); filter: brightness(1.5) drop-shadow(0 0 8px #fff); } 100% { transform: scale(1); } }
 @keyframes buff { 30% { border-color: var(--c-regen); } }
 
 /* ---------- Bench / essences ---------- */
@@ -241,7 +245,7 @@ button { font: inherit; color: inherit; }
   .ruler-row .tc, .tracks { width: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .item.pulse, .item.pulse .flash, .item.buffed::before, .float { animation-duration: 0.01s; }
+  .item.pulse, .item.pulse .flash, .item.pulse .ico, .item.buffed::before, .float { animation-duration: 0.01s; }
 }
 
 /* ---------- Day flow, opponent info, run history ---------- */
@@ -442,3 +446,15 @@ button { font: inherit; color: inherit; }
 .offer.coupon-on { outline: 2px solid var(--accent); outline-offset: 2px; }
 .offer.used-up { opacity: 0.5; }
 .coupon-chip { color: var(--c-regen); }
+
+/* ---------- Shop styles, shop bonuses, leveled skills, live multicast ---------- */
+.style-pick .boon.shop-style { border-top: 3px solid var(--line); }
+.style-pick .boon.shop-style.late { border-top-color: var(--accent); }
+.bonus-tag { color: var(--c-damage); font-weight: 600; }
+.item .mc.boosted { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.chip.lvup { color: var(--accent); border-color: var(--accent); }
+.art-list .sk-pips { position: static; display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.art-list .sk-pips i { width: 5px; height: 5px; border-radius: 50%; background: var(--line); display: inline-block; }
+.art-list .sk-pips i.on { background: var(--fg); }
+.sk-ico sup { font-family: var(--f-mono); font-size: 9px; color: var(--accent); }
+.over-card.style-pick { width: min(760px, 100%); max-width: none; }

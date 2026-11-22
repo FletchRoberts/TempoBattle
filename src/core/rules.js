@@ -1,5 +1,5 @@
 // Run rules, economy and board helpers. No DOM here: shared by the game, the bots and the Node tools.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, SHOP_TOKENS, STAT_WEIGHT } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, STAT_WEIGHT, CATEGORIES } from '../data/items.js';
 import { SKILLS, skillEffects } from '../data/skills.js';
 
 // 3 x 5 board: little spare space, so weak items have to be swapped out rather than kept around.
@@ -14,10 +14,8 @@ export const SHOP_ITEMS = 5;
 export const SHINY_BONUS = 1;
 export const shinyChance = day => Math.min(0.08, 0.02 + day * 0.005);
 export const SHINY_PRICE_MULT = 2;
-// Augments are rare: pre-infused shop items and the occasional Wild Essence (random infusion).
+// Augments are rare: some shop items come pre-infused (the Essence Bazaar shop infuses all of them).
 export const PREINFUSED_CHANCE = 0.08, PREINFUSED_SURCHARGE = 3;
-export const WILD_ESSENCE_CHANCE = 0.2;
-export const ECHO_RUNE_CHANCE = 0.06; // stat modifiers are gone (skills do that); the rare Echo Rune remains
 
 // Rarity tiers. An item's level is how many tiers it has climbed from its starting rarity:
 // a Common at level 3 is Rare. Legendary is the top, so Legendaries can't be upgraded.
@@ -55,7 +53,7 @@ export const uid = () => uidSeq++;
 export const def = inst => ITEMS[inst.id];
 export function newInst(id, level = 1) {
   const d = ITEMS[id];
-  return { uid: uid(), id, level, infusion: null, mods: [], multicast: d.multicast || 1, w: d.w, h: d.h, x: -1, y: -1 };
+  return { uid: uid(), id, level, infusion: null, mods: [], extra: null, multicast: d.multicast || 1, w: d.w, h: d.h, x: -1, y: -1 };
 }
 export const isShiny = inst => inst.multicast > (def(inst).multicast || 1);
 export const priceOf = inst => RARITY[tierOf(inst)].price * (isShiny(inst) ? SHINY_PRICE_MULT : 1)
@@ -68,6 +66,8 @@ export function mergeInto(target, src) {
   target.multicast = Math.max(target.multicast, src.multicast); // shiny survives the merge
   if (!target.infusion && src.infusion) target.infusion = src.infusion;
   target.mods = [...(target.mods || []), ...(src.mods || [])]; // no limit on modifiers
+  // shop bonuses don't stack on a merge: the bigger one stays
+  if (src.extra) { target.extra = { ...(target.extra || {}) }; for (const [k, v] of Object.entries(src.extra)) target.extra[k] = Math.max(target.extra[k] || 0, v); }
   return target;
 }
 
@@ -87,7 +87,7 @@ export function applyMod(inst, modId) {
 export const rerollCost = n => 1 + n;
 // Max HP per day, calibrated by tools/calibrate-hp.js so a typical fight lasts ~18s on every day
 // (items scale up fast, so HP has to as well), then smoothed. Days past the end use the last value.
-export const HP_BY_DAY = [300, 400, 570, 780, 1130, 1620, 2320, 2890, 3300, 3850, 5000, 6070, 6770, 7450, 8790, 9840, 12780];
+export const HP_BY_DAY = [280, 390, 600, 920, 1530, 1960, 2420, 3060, 4630, 6950, 10810, 15610, 26680, 43780, 91230, 137890, 240000];
 export const maxHp = day => HP_BY_DAY[Math.min(day, HP_BY_DAY.length) - 1];
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 
@@ -124,67 +124,106 @@ export function afterFightGold({ board, skills = [], day, won, gold = 0, battleG
   return { total: lines.reduce((a, [, g]) => a + g, 0), lines, board: keep, skillPicks };
 }
 
-// ---------- Shop ----------
-// ---------- Shop rank ----------
-// Rank = day + Guild Charters bought. Each rank has fixed rarity odds (percent): all Common at
-// rank 1, shifting up until it caps at RANK_ODDS' last row.
-export const RANK_ODDS = [
-  // common uncommon rare superrare legendary
-  [100, 0, 0, 0, 0],   // rank 1
-  [80, 20, 0, 0, 0],   // 2
-  [62, 30, 8, 0, 0],   // 3
-  [48, 34, 15, 3, 0],  // 4
-  [36, 34, 21, 8, 1],  // 5
-  [27, 32, 25, 12, 4], // 6
-  [20, 29, 28, 16, 7], // 7
-  [14, 26, 30, 20, 10],// 8
-  [10, 23, 31, 23, 13],// 9
-  [8, 20, 32, 25, 15], // 10+ (cap)
+// ---------- Shop rarity by day ----------
+// Days 1-2 sell only Commons, Uncommons join on day 3, Rares on day 5, Super Rares on day 7 and
+// Legendaries on day 9. Percent per rarity: common uncommon rare superrare legendary.
+export const DAY_ODDS = [
+  [1, [100, 0, 0, 0, 0]],
+  [3, [75, 25, 0, 0, 0]],
+  [5, [50, 35, 15, 0, 0]],
+  [7, [35, 35, 22, 8, 0]],
+  [9, [25, 32, 26, 13, 4]],
+  [11, [18, 28, 29, 18, 7]],
 ];
-export const MAX_RANK = RANK_ODDS.length;
-export const shopRank = (day, bonus = 0) => day + bonus;
-export function rarityWeights(rank) {
-  const row = RANK_ODDS[Math.min(MAX_RANK, Math.max(1, rank)) - 1];
+export const oddsBracket = (day, boost = 0) => Math.min(DAY_ODDS.length - 1, DAY_ODDS.findLastIndex(([d]) => day >= d) + boost);
+export function rarityWeights(day, boost = 0) {
+  const row = DAY_ODDS[oddsBracket(day, boost)][1];
   return Object.fromEntries(RARITIES.map((r, i) => [r, row[i]]));
 }
+// Highest tier a shop can roll on a day.
+export const topTier = (day, boost = 0) => DAY_ODDS[oddsBracket(day, boost)][1].findLastIndex(p => p > 0);
 
-// ---------- Prices: sales and coupons ----------
+// ---------- Prices ----------
 export const SALE_CHANCE = 0.08; // an item offer is sometimes half price
-// What an offer costs right now: item offers on sale (rolled, or from a Coupon) are half price.
 export function offerPrice(o) {
-  if (o.kind !== 'item') return o.price;
   return o.sale ? Math.ceil(o.price / 2) : o.price;
 }
-// Item offers a Coupon can put on sale.
-export const couponTargets = offers => offers.filter(o => o.kind === 'item' && !o.sold && !o.sale);
 
-export function rollRarity(rank, rng) {
-  const w = rarityWeights(rank);
+export function rollRarity(day, rng, boost = 0) {
+  const w = rarityWeights(day, boost);
   let t = rng.next() * Object.values(w).reduce((a, b) => a + b, 0);
   for (const [k, v] of Object.entries(w)) if ((t -= v) < 0) return k;
   return 'common';
 }
-// Roll an offer at a tier: usually an item that starts at that tier, sometimes an upgraded
-// lower-tier item already at that tier.
+// Roll an offer: usually an item that starts at the rolled tier, sometimes an upgraded lower-tier
+// item already at that tier. `filter(id)` limits which items can appear (shop styles); if nothing
+// fits at the rolled tier, it tries lower tiers.
 export const UPGRADED_OFFER_CHANCE = 0.25;
-export function rollOffer(rank, rng) {
-  const r = RARITIES.indexOf(rollRarity(rank, rng));
-  const native = Object.keys(ITEMS).filter(k => baseTier(k) === r);
-  const lower = Object.keys(ITEMS).filter(k => baseTier(k) < r);
-  const id = (lower.length && (rng.chance(UPGRADED_OFFER_CHANCE) || !native.length)) ? rng.pick(lower) : rng.pick(native);
-  return newInst(id, r - baseTier(id) + 1);
+export function rollOffer(day, rng, filter = () => true, boost = 0) {
+  const ids = Object.keys(ITEMS).filter(filter);
+  for (let r = RARITIES.indexOf(rollRarity(day, rng, boost)); r >= 0; r--) {
+    const native = ids.filter(k => baseTier(k) === r), lower = ids.filter(k => baseTier(k) < r);
+    if (!native.length && !lower.length) continue;
+    const id = (lower.length && (rng.chance(UPGRADED_OFFER_CHANCE) || !native.length)) ? rng.pick(lower) : rng.pick(native);
+    return newInst(id, r - baseTier(id) + 1);
+  }
+  const low = Math.min(...ids.map(baseTier));
+  return newInst(rng.pick(ids.filter(k => baseTier(k) === low)), 1);
 }
-export function rollShop(day, rng, rank = day) {
+
+// ---------- Shop styles ----------
+// Each day you choose which shop to visit from 3 options. The shop's style holds for that day's
+// rerolls too. The better styles only turn up later in the run (`from` = first day).
+export const shopBonus = day => Math.round(10 + 4 * day + 0.5 * day * day); // Armory / Bastion built-in bonus
+const hasStat = (id, k) => !!(ITEMS[id].effects?.[k] || ITEMS[id].scale?.some(x => x.stat === k));
+export const SHOP_STYLES = {
+  general:  { name: 'General Store', icon: '🏪', from: 1, text: 'A bit of everything.' },
+  category: { name: '{cat} Specialist', icon: '🏷️', from: 1, text: 'Only {cat} items.', filter: st => id => (ITEMS[id].cats || []).includes(st.cat) },
+  small:    { name: 'Trinket Stall', icon: '🧿', from: 1, text: 'Only 1-cell items.', filter: () => id => ITEMS[id].w * ITEMS[id].h === 1 },
+  large:    { name: 'Heavy Goods', icon: '🏗️', from: 2, text: 'Only items 2 cells or bigger.', filter: () => id => ITEMS[id].w * ITEMS[id].h >= 2 },
+  twins:    { name: 'Twin Peddler', icon: '👯', from: 3, text: 'Mostly copies of items you own, so merges come easy.' },
+  clearance:{ name: 'Clearance Sale', icon: '💸', from: 3, text: 'Everything costs a third less.' },
+  armory:   { name: 'Armory', icon: '⚔️', from: 4, bonus: 'damage', text: 'Only items that deal damage, each with +{bonus} Damage built in for good (more on slow items).', filter: () => id => hasStat(id, 'damage') },
+  bastion:  { name: 'Bastion Outfitter', icon: '🛡️', from: 4, bonus: 'shield', text: 'Only Shield items, each with +{bonus} Shield built in for good (more on slow items).', filter: () => id => hasStat(id, 'shield') },
+  curio:    { name: 'Curio Dealer', icon: '🔮', from: 5, boost: 1, text: "Rarity odds of the next stage of the run." },
+  infuser:  { name: 'Essence Bazaar', icon: '🧪', from: 5, text: 'Every item comes infused with a random essence.' },
+  gilded:   { name: 'Gilded Hall', icon: '✨', from: 8, text: 'Every item is shiny: +1 multicast.' },
+};
+export const styleName = st => SHOP_STYLES[st.id].name.replace('{cat}', st.cat);
+export const styleText = (st, day) => SHOP_STYLES[st.id].text.replace('{cat}', st.cat).replace('{bonus}', shopBonus(day));
+const styleFilter = st => SHOP_STYLES[st.id].filter?.(st) || (() => true);
+// Categories with at least 2 items a shop can sell today, so a category shop is never empty.
+function shopCats(day) {
+  return Object.keys(CATEGORIES).filter(c => Object.keys(ITEMS).filter(id => (ITEMS[id].cats || []).includes(c) && baseTier(id) <= topTier(day)).length >= 2);
+}
+// The 3 shops to choose from today. `owned`: your items (Twin Peddler needs something to copy).
+export function rollShopChoices(day, rng, owned = []) {
+  const ids = Object.keys(SHOP_STYLES).filter(k => SHOP_STYLES[k].from <= day && (k !== 'twins' || owned.length));
+  const cats = rng.shuffle(shopCats(day));
+  const picks = [];
+  // categories are several shops in one, so they get two tickets
+  const pool = rng.shuffle([...ids, ...(cats.length > 1 ? ['category'] : [])]);
+  for (const id of pool) {
+    if (picks.length >= 3) break;
+    if (id === 'category') { const cat = cats.shift(); if (cat) picks.push({ id, cat }); continue; }
+    if (!picks.some(p => p.id === id)) picks.push({ id });
+  }
+  return picks;
+}
+export function rollShop(day, rng, style = { id: 'general' }, owned = []) {
+  const S = SHOP_STYLES[style.id], filter = styleFilter(style);
+  const copyable = owned.filter(o => o.level < maxLevel(o));
   const offers = [];
   for (let i = 0; i < SHOP_ITEMS; i++) {
-    const inst = rollOffer(rank, rng);
-    if (rng.chance(shinyChance(day))) inst.multicast += SHINY_BONUS;
-    if (rng.chance(PREINFUSED_CHANCE)) inst.infusion = rollInfusion(rng);
-    offers.push({ kind: 'item', inst, price: priceOf(inst), sale: rng.chance(SALE_CHANCE), sold: false });
+    const inst = style.id === 'twins' && copyable.length && rng.chance(0.4)
+      ? (o => newInst(o.id, o.level))(rng.pick(copyable)) : rollOffer(day, rng, filter, S.boost || 0);
+    if (style.id === 'gilded' || rng.chance(shinyChance(day))) inst.multicast += SHINY_BONUS;
+    if (style.id === 'infuser' || rng.chance(PREINFUSED_CHANCE)) inst.infusion = rollInfusion(rng);
+    if (S.bonus) inst.extra = { [S.bonus]: scaledBonus(shopBonus(day), perFireScale(inst)) };
+    let price = priceOf(inst);
+    if (style.id === 'clearance') price = Math.max(1, Math.round(price * 2 / 3));
+    offers.push({ kind: 'item', inst, price, sale: rng.chance(SALE_CHANCE), sold: false });
   }
-  if (rng.chance(ECHO_RUNE_CHANCE)) offers.push({ kind: 'mod', id: 'echoRune', price: MODIFIERS.echoRune.price, sold: false });
-  if (rng.chance(WILD_ESSENCE_CHANCE)) offers.push({ kind: 'essence', price: WILD_ESSENCE.price, sold: false });
-  for (const [id, t] of Object.entries(SHOP_TOKENS)) if (rng.chance(t.chance)) offers.push({ kind: 'token', id, price: t.price, sold: false });
   return offers;
 }
 
@@ -195,6 +234,7 @@ export function statsOf(inst) {
   const pf = perFireScale(inst);
   if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + infusionAmount(inst); }
   for (const id of inst.mods || []) { const m = MODIFIERS[id]; if (m.stat) out[m.stat] = (out[m.stat] || 0) + scaledBonus(m.v, pf); }
+  for (const [k, v] of Object.entries(inst.extra || {})) out[k] = (out[k] || 0) + v; // built in by an Armory / Bastion shop
   return out;
 }
 // An item's power: its own per-fire numbers in damage terms. Items with no numbers of their own
@@ -247,9 +287,12 @@ export function freeSpots(board, w, h) {
 }
 
 // ---------- Snapshots (what gets stored in the opponent pool) ----------
-// Compact form: [id, level, x, y, w, h, infusion|0, multicast, mods|0]
+// Compact form: [id, level, x, y, w, h, infusion|0, multicast, mods|0, extra|0]
 export const snapshot = board => board.map(o =>
-  [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0, o.multicast || 1, o.mods?.length ? o.mods : 0]);
-export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf, mc, mods]) =>
+  [o.id, o.level, o.x, o.y, o.w, o.h, o.infusion || 0, o.multicast || 1, o.mods?.length ? o.mods : 0, o.extra || 0]);
+export const fromSnapshot = snap => snap.map(([id, level, x, y, w, h, inf, mc, mods, extra]) =>
   ({ uid: uid(), id, level: Math.min(level, RARITIES.length - baseTier(id)), x, y, w, h, infusion: inf || null,
-     multicast: mc || ITEMS[id].multicast || 1, mods: (mods || []).filter(m => MODIFIERS[m]) }));
+     multicast: mc || ITEMS[id].multicast || 1, mods: (mods || []).filter(m => MODIFIERS[m]), extra: extra || null }));
+
+// ---------- Run context (what "per win / per life lost" skills count) ----------
+export const emptyCells = board => COLS * ROWS - board.reduce((a, o) => a + o.w * o.h, 0);
