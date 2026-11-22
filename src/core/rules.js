@@ -88,7 +88,8 @@ export const rerollCost = n => 1 + n;
 // Max HP per day, calibrated by tools/calibrate-hp.js so a typical fight lasts ~18s on every day
 // (items scale up fast, so HP has to as well), then smoothed. Days past the end use the last value.
 export const HP_BY_DAY = [180, 340, 550, 810, 1170, 1660, 2240, 2880, 4160, 5980, 9400, 13020, 20490, 28680, 37190, 44280, 47820];
-export const maxHp = day => HP_BY_DAY[Math.min(day, HP_BY_DAY.length) - 1];
+// Endless mode goes past the table: +10% a day from its last value.
+export const maxHp = day => day <= HP_BY_DAY.length ? HP_BY_DAY[day - 1] : Math.round(HP_BY_DAY.at(-1) * 1.1 ** (day - HP_BY_DAY.length) / 10) * 10;
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 
 // Everyone starts with an empty board and buys their first items on Day 1.

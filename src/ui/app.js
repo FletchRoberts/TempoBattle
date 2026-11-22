@@ -23,6 +23,8 @@ let store, rng, S;
 
 export function startApp(poolStore) {
   store = poolStore;
+  // Test hook, only when served from this machine (browser tests jump to late-run states with it).
+  if (/^(localhost|127\.)/.test(location.hostname)) window.__tempo = { get S() { return S; }, render: () => render() };
   window.addEventListener('resize', () => { if (S.phase === 'pvp') CELL = setCell(); else render(); });
   window.addEventListener('keydown', e => { if (e.key !== 'Escape') return; closeModal(); if (S.upgradePick != null) { S.upgradePick = null; render(); } });
   S = { phase: 'title' };
@@ -88,7 +90,7 @@ function nextDay(result) {
   if (result === 'loss') S.band = moveBand(S.band, -BAND_STEP);
   if (result === 'win') { S.wins++; S.streak++; }
   if (result === 'loss') { S.lives = Math.max(0, S.lives - lifeLoss(S.day)); S.livesLost += lifeLoss(S.day); S.streak = 0; }
-  if (S.wins >= WINS_TO_CLEAR) { S.phase = 'over'; return render(); }
+  if (!S.endless && S.wins >= WINS_TO_CLEAR) { S.phase = 'over'; S.lastResult = result; return render(); }
   if (S.lives <= 0) {
     if (S.lastStandUsed) { S.phase = 'over'; return render(); }
     S.phase = 'laststand'; S.boons = rng.shuffle([...BOONS]).slice(0, 3); return render();
@@ -343,7 +345,7 @@ function renderHud() {
     <ol class="flow" aria-label="Today">${flow}</ol>
     <dl class="stats">
       <div><dt>Day</dt><dd>${S.day}</dd></div>
-      <div><dt>Wins</dt><dd>${S.wins}<small>/${WINS_TO_CLEAR}</small></dd></div>
+      <div><dt>Wins</dt><dd>${S.wins}<small>${S.endless ? ' · endless' : '/' + WINS_TO_CLEAR}</small></dd></div>
       <div title="Lives lost on a defeat today"><dt>Lives · loss −${lifeLoss(S.day)}</dt><dd>${lives}</dd></div>
       <div><dt>Max HP</dt><dd>${(sk => Math.round(myMaxHp() * (1 + sk.maxHp)) + Math.round(sk.maxHpFlat))(skillEffects(S.skills, myCtx()))}</dd></div>
       <div class="gold"><dt>Gold</dt><dd>${S.gold}</dd></div>
@@ -592,7 +594,7 @@ function historyPanel() {
   const shared = store.sharedCount(S.day);
   const band = S.band || MATCH_BAND;
   p.append(el('p', 'muted band-note', `Next opponent rated <b>${pct(band[0])}–${pct(band[1])}</b> (how often their board beats the day's field). Each win moves this up 5 points, each loss down 5.` +
-    (shared ? ` ${shared} board${shared > 1 ? 's' : ''} from other players today.` : '')));
+    (store.hasDb() ? ` <span class="pool-count">${store.fetched(S.day) ? `<b>${shared}</b> player board${shared === 1 ? '' : 's'} in the pool for Day ${S.day}.` : 'Loading player boards…'}</span>` : '')));
   if (!S.history.length) return p;
   const ol = el('ol', 'hist');
   ol.append(el('li', 'hist-head', '<span></span><span></span><span>Opponent · their rating</span><span>You</span>'));
@@ -904,13 +906,15 @@ function renderEncounter() {
 
 // ===================== PvP battle =====================
 let ui = null, raf = 0, battleSpeed = 1;
-function startBattle() {
+async function startBattle() {
   if (S.hand) { // put a held item away before fighting
     if (drag) endDrag();
     if (S.bench.length >= BENCH_MAX) { toast('Put the item in your hand somewhere first.'); return render(); }
     S.bench.push(S.hand); S.hand = null;
   }
+  if (!store.fetched(S.day)) { toast('Finding opponents…'); await store.prefetch(S.day); }
   const opp = store.pick(S.day, rng, { runId: S.runId, faced: S.faced, band: S.band });
+  if (!opp) return reachFrontier();
   S.opponent = opp; S.faced.add(opp.id);
   S.mySnapshot = snapshot(S.board);
   const hp = maxHp(S.day);
@@ -1102,22 +1106,41 @@ function showResult(res) {
   S.rateTimer = setTimeout(() => {
     if (S.myWr == null) rateMyBoard();
     const r = $('.rating', m);
-    if (r) r.innerHTML = `Your board wins <b>${pct(S.myWr)}</b> against Day ${S.day}'s field. It's now in the opponent pool.`;
+    if (r) r.innerHTML = `Your board wins <b>${pct(S.myWr)}</b> against Day ${S.day}'s field. <span class="saved">Saving…</span>`;
+    S.saved?.then(st => { const n = $('.rating .saved', m); if (n) { n.textContent = SAVED_TEXT[st]; n.classList.add('s-' + st); } });
   }, 30);
 }
 function rateMyBoard() {
   const team = store.submit({ runId: S.runId, day: S.day, name: 'Player', items: S.mySnapshot, skills: [...S.skills], ctx: S.myCtx });
-  S.myWr = team.wr;
+  S.myWr = team.wr; S.saved = team.saved;
+  return team;
+}
+const SAVED_TEXT = { shared: '✓ Saved to the shared pool: other players can now face it.', local: 'Saved in this browser (the shared pool is only on the published game).',
+  failed: "Couldn't reach the shared pool, so it's saved in this browser only." };
+// No board anywhere for this day: you're the first player to get here. Your board is saved so the
+// next player who makes it this far has someone to fight.
+function reachFrontier() {
+  S.mySnapshot = snapshot(S.board); S.myCtx = myCtx();
+  rateMyBoard();
+  S.frontier = true; S.phase = 'over'; render();
 }
 
 // ===================== Game over =====================
 function renderOver() {
   const v = $('#view'); v.className = 'over';
-  const won = S.wins >= WINS_TO_CLEAR;
-  v.innerHTML = `<section class="panel over-card"><h2>${won ? 'Run cleared' : 'Run over'}</h2>
-    <p>${S.wins} wins across ${S.day} days.</p><button type="button" class="btn fight" id="again">New run <span>→</span></button>
+  const won = S.wins >= WINS_TO_CLEAR, canEndless = won && !S.endless && !S.frontier && S.lives > 0;
+  const title = S.frontier ? 'Uncharted territory' : S.endless ? 'Endless run over' : won ? 'Run cleared' : 'Run over';
+  const note = S.frontier ? `<p>Nobody has reached Day ${S.day} yet, so there's no one to fight. You've gone further than any player.</p>
+      <p class="muted saved-note">Saving your board so the next player who gets this far has you to beat…</p>`
+    : canEndless ? `<p class="muted">Keep going in Endless mode: more days, harder opponents, until you run out of lives or reach a day no player has reached yet.</p>` : '';
+  v.innerHTML = `<section class="panel over-card"><h2>${title}</h2>
+    <p>${S.wins} wins across ${S.day} days.</p>${note}
+    ${canEndless ? '<button type="button" class="btn fight" id="endless">Keep going: Endless <span>→</span></button>' : ''}
+    <button type="button" class="btn ${canEndless ? 'ghost' : 'fight'}" id="again">New run${canEndless ? '' : ' <span>→</span>'}</button>
     <button type="button" class="btn ghost" id="to-title">Back to title</button></section>`;
   $('#to-title').onclick = () => { S = { phase: 'title' }; render(); };
+  if (canEndless) $('#endless').onclick = () => { S.endless = true; advanceDay(S.lastResult || 'win'); };
+  if (S.frontier) S.saved?.then(st => { const n = $('.saved-note'); if (n) n.textContent = SAVED_TEXT[st]; });
   v.querySelector('.over-card').append(historyPanel());
   $('#again').onclick = newRun;
 }

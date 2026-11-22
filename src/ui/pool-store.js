@@ -25,7 +25,7 @@ function cleanTeam(raw, day) {
   if (!items.length) return null;
   const skills = (Array.isArray(raw.skills) ? raw.skills : []).filter(id => typeof id === 'string' && SKILLS[id]).slice(0, 60);
   const c = raw.ctx && typeof raw.ctx === 'object' ? raw.ctx : {};
-  const ctx = { day, wins: num(c.wins, 0, 10, 0), livesLost: num(c.livesLost, 0, 20, 0), lives: num(c.lives, 0, 10, 10), gold: num(c.gold, 0, 999, 0), streak: num(c.streak, 0, 20, 0) };
+  const ctx = { day, wins: num(c.wins, 0, 999, 0), livesLost: num(c.livesLost, 0, 20, 0), lives: num(c.lives, 0, 10, 10), gold: num(c.gold, 0, 999, 0), streak: num(c.streak, 0, 20, 0) };
   return { id: String(raw.id || '').slice(0, 80), runId: String(raw.runId || '').slice(0, 40), day, name: String(raw.name || 'Player').slice(0, 24),
     source: 'player', items, skills, ctx, wr: num(raw.wr, 0, 1, 0.5) };
 }
@@ -34,29 +34,32 @@ export class PoolStore {
   constructor(pool) {
     this.pool = pool;
     this.local = load();
-    this.shared = {}; // dayKey -> [team]
+    this.shared = {}; // day -> [team] (absent = not fetched yet)
     this.maxDay = Math.max(...Object.keys(pool.days).map(Number));
     this.db = null;
     // The shared database exists only on the published page; elsewhere this stays null.
     window.claude?.use?.('db').then(db => { this.db = db; this.onShared?.(); }).catch(() => {});
   }
-  dayKey(day) { return Math.min(day, this.maxDay); }
-  base(day) { return this.pool.days[this.dayKey(day)] || []; }
+  // Bots cover days 1..maxDay. Past that (Endless mode) only boards players saved on that day exist.
+  base(day) { return this.pool.days[day] || []; }
+  // What a board is rated against: that day's bots, or the last bot day once past them.
+  ratingField(day) { return this.pool.days[Math.min(day, this.maxDay)] || []; }
   field(day) {
-    const k = this.dayKey(day), ids = new Set(this.local.map(t => t.id));
-    return [...this.base(day), ...this.local.filter(t => t.day === k), ...(this.shared[k] || []).filter(t => !ids.has(t.id))];
+    const ids = new Set(this.local.map(t => t.id));
+    return [...this.base(day), ...this.local.filter(t => t.day === day), ...(this.shared[day] || []).filter(t => !ids.has(t.id))];
   }
-  sharedCount(day) { return (this.shared[this.dayKey(day)] || []).length; }
-  col(day) { return this.db.collection(`days/d${this.dayKey(day)}/boards`); }
+  fetched(day) { return !this.db || day in this.shared; }
+  hasDb() { return !!this.db; }
+  sharedCount(day) { return (this.shared[day] || []).length; }
+  col(day) { return this.db.collection(`days/d${day}/boards`); }
 
   // Read a day's shared boards ahead of the fight (newest first). Quietly does nothing without a db.
   async prefetch(day) {
     if (!this.db) return;
-    const k = this.dayKey(day);
     try {
       const snap = await this.col(day).orderBy('at', 'desc').limit(SHARED_PER_DAY).get();
-      this.shared[k] = snap.docs.map(d => cleanTeam(d.data(), k)).filter(Boolean);
-    } catch { /* offline or not allowed: bots and local boards still work */ }
+      this.shared[day] = snap.docs.map(d => cleanTeam(d.data(), day)).filter(Boolean);
+    } catch { this.shared[day] ||= []; /* offline or not allowed: bots and local boards still work */ }
   }
 
   // An opponent inside your matchmaking band, never your own run's boards or someone you already fought this run.
@@ -66,15 +69,16 @@ export class PoolStore {
 
   // Rate a player's board against the day's bot field and add it to the pool for future runs:
   // in this browser, and shared with every player when the database is available.
+  // team.saved resolves 'shared' | 'local' (no database here) | 'failed'.
   submit({ runId, day, name, items, skills = [], ctx = {} }) {
-    const wr = rateAgainst(items, this.base(day), day, skills, ctx);
-    const team = { id: `p-${runId}-d${this.dayKey(day)}`, runId, day: this.dayKey(day), name, source: 'player', items, skills, ctx, wr };
+    const wr = rateAgainst(items, this.ratingField(day), day, skills, ctx);
+    const team = { id: `p-${runId}-d${day}`, runId, day, name, source: 'player', items, skills, ctx, wr };
     this.local = [...this.local.filter(t => t.id !== team.id), team].slice(-MAX_LOCAL);
     save(this.local);
-    if (this.db) {
+    team.saved = !this.db ? Promise.resolve('local')
       // The board travels as JSON text so each document stays a flat, simple record.
-      this.col(day).doc(`${runId}`).set({ ...team, items: JSON.stringify(items), at: Date.now() }).catch(() => {});
-    }
+      : this.col(day).doc(`${runId}`).set({ ...team, items: JSON.stringify(items), at: Date.now() })
+        .then(() => { (this.shared[day] ||= []); return 'shared'; }, () => 'failed');
     return team;
   }
 }
