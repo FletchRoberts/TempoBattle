@@ -458,3 +458,28 @@ button { font: inherit; color: inherit; }
 .art-list .sk-pips i.on { background: var(--fg); }
 .sk-ico sup { font-family: var(--f-mono); font-size: 9px; color: var(--accent); }
 .over-card.style-pick { width: min(760px, 100%); max-width: none; }
+
+/* ---------- Battle summary ---------- */
+.modal-card:has(.battle-summary[open]) { width: min(980px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); overflow-y: auto; }
+.battle-summary { text-align: left; border-top: 1px solid var(--line); padding-top: 10px; }
+.battle-summary > summary { cursor: pointer; font-family: var(--f-display); font-weight: 600; color: var(--accent); }
+.sum-side { margin-top: 12px; }
+.sum-side h4 { margin: 0 0 6px; font-family: var(--f-display); font-size: 15px; }
+.sum-tot { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.sum-tot b { font-family: var(--f-mono); color: var(--fg); }
+.sum-tot .c-damage b { color: var(--c-damage); } .sum-tot .c-burn b { color: var(--c-fire); } .sum-tot .c-poison b { color: var(--c-poison); }
+.sum-tot .c-shield b { color: var(--c-shield); } .sum-tot .c-heal b { color: var(--c-heal); } .sum-tot .c-regen b { color: var(--c-regen); }
+.sum-tot .c-gold b { color: var(--gold, #e8b84a); } .sum-tot .c-storm b { color: var(--c-storm, #b48cff); }
+.sum-wrap { overflow-x: auto; }
+.sum-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sum-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.sum-table td { padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); vertical-align: top; }
+.sum-table .num { text-align: right; font-family: var(--f-mono); white-space: nowrap; }
+.sum-table .it { white-space: nowrap; }
+.sum-table .fin i { font-style: normal; font-family: var(--f-mono); margin-right: 6px; white-space: nowrap; }
+.sum-table .fin small { display: block; }
+.sum-table .c-damage { color: var(--c-damage); } .sum-table .c-burn { color: var(--c-fire); } .sum-table .c-poison { color: var(--c-poison); }
+.sum-table .c-shield { color: var(--c-shield); } .sum-table .c-heal { color: var(--c-heal); } .sum-table .c-regen { color: var(--c-regen); }
+.sum-table .c-gold { color: var(--gold, #e8b84a); } .sum-table .c-maxhp { color: var(--c-heal); }
+.sum-table .mcx { color: var(--shiny); font-family: var(--f-mono); }
+.sum-note { font-size: 12px; margin-top: 8px; }

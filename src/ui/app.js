@@ -946,6 +946,36 @@ function onFx(type, i, a, b) {
     else popFloat(i, a, b);
   }
 }
+// ===================== Battle summary =====================
+// Per side: fight totals, then every item: how often it fired, its numbers at the end of the fight
+// (with all scaling, buffs and skills) and what it applied over the whole fight.
+const REC_COLS = [['damage', 'Damage'], ['burn', 'Burn'], ['poison', 'Poison'], ['shield', 'Shield'], ['heal', 'Healed'], ['regen', 'Regen'], ['gold', 'Gold']];
+function sideSummary(B, i, name) {
+  const F = B.f[i], T = F.tot;
+  const tot = [
+    ['Hit damage dealt', T.hitDmg, 'damage'], ['Burn damage dealt', T.burnDmg, 'burn'], ['Poison damage dealt', T.poisonDmg, 'poison'],
+    ['Shield gained', T.shield, 'shield'], ['Damage blocked', T.blocked, 'shield'], ['Healed', T.healed, 'heal'], ['Regen healed', T.regenHealed, 'regen'],
+    ['Storm taken', T.stormTaken, 'storm'], ['Gold earned', F.goldEarned, 'gold'],
+  ].filter(([, v]) => v > 0);
+  const rows = [...F.items].sort((a, b) => b.rec.fires - a.rec.fires || a.x - b.x).map(inst => {
+    const d = def(inst), fin = B.computeStats(i, inst), mc = (inst.multicast || 1) + inst.extraMc;
+    const finals = CHIP_STATS.filter(k => fin[k] > 0).map(k => `<i class="c-${k}">${STAT_ICON[k]}${compact(fin[k])}</i>`).join(' ');
+    const scaling = (d.scale || []).map(sc => `${sc.v[inst.level - 1]}× ${SCALE_FROM[sc.from]}`).join(', ');
+    const applied = REC_COLS.map(([k]) => `<td class="num c-${k}">${inst.rec[k] ? compact(inst.rec[k]) : ''}</td>`).join('');
+    return `<tr><td class="it"><span>${d.icon}</span> ${d.name}${mc > 1 ? ` <small class="mcx">×${mc}</small>` : ''}</td><td class="num">${inst.rec.fires || '–'}</td>
+      <td class="fin">${finals || '<span class="muted">–</span>'}${scaling ? `<small class="muted">${scaling}</small>` : ''}</td>${applied}</tr>`;
+  }).join('');
+  return `<section class="sum-side"><h4>${name} <small class="muted">${Math.max(0, Math.round(F.hp))} / ${F.maxHp} HP left</small></h4>
+    <ul class="sum-tot">${tot.map(([n, v, c]) => `<li class="c-${c}"><b>${compact(v)}</b> ${n}</li>`).join('') || '<li class="muted">Nothing happened.</li>'}</ul>
+    <div class="sum-wrap"><table class="sum-table"><thead><tr><th>Item</th><th class="num">Fired</th><th>Numbers at the end</th>${REC_COLS.map(([, n]) => `<th class="num">${n}</th>`).join('')}</tr></thead>
+    <tbody>${rows}</tbody></table></div></section>`;
+}
+function battleSummary(B) {
+  return `<details class="battle-summary"><summary>Battle summary · ${B.t.toFixed(1)}s</summary>
+    ${sideSummary(B, 0, 'You')}${sideSummary(B, 1, B.f[1].name)}
+    <p class="muted sum-note">Fired counts every activation, multicast and triggers included. Damage counts what hit the enemy's HP and Shield; Healed counts HP actually restored.</p></details>`;
+}
+
 function showResult(res) {
   if (S.phase !== 'pvp' || $('.modal')) return;
   const pay = fightPayout(res, false), gain = pay.total;
@@ -960,6 +990,7 @@ function showResult(res) {
   m.innerHTML = `<div class="modal-card ${res}"><h2>${title}</h2><p>${sub}</p>
     <p class="rating">Rating your board against Day ${S.day}'s field…</p>
     ${last && S.lastStandUsed ? '' : `<p class="income">+${gain} gold next shop</p>${payLines}`}
+    ${battleSummary(S.battle)}
     <button type="button" class="btn fight" id="cont">Continue <span>→</span></button></div>`;
   document.body.append(m);
   const cont = $('#cont', m);

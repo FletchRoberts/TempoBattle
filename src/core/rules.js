@@ -87,7 +87,7 @@ export function applyMod(inst, modId) {
 export const rerollCost = n => 1 + n;
 // Max HP per day, calibrated by tools/calibrate-hp.js so a typical fight lasts ~18s on every day
 // (items scale up fast, so HP has to as well), then smoothed. Days past the end use the last value.
-export const HP_BY_DAY = [280, 400, 650, 1000, 1460, 1770, 2250, 2990, 4210, 5580, 7850, 10050, 13790, 20000, 25980, 31100, 33590];
+export const HP_BY_DAY = [370, 520, 790, 1080, 1580, 2170, 2840, 3810, 5080, 7030, 9170, 11070, 17190, 23360, 27460, 29660, 32030];
 export const maxHp = day => HP_BY_DAY[Math.min(day, HP_BY_DAY.length) - 1];
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 

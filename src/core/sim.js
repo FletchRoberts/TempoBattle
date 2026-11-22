@@ -27,9 +27,12 @@ export class Fighter {
     hp = Math.round(hp * (1 + this.sk.maxHp)) + Math.round(this.sk.maxHpFlat);
     this.name = name; this.maxHp = hp; this.hp = hp;
     this.shield = 0; this.burn = 0; this.poison = 0; this.regen = 0;
-    this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0,
+    // rec: what this item did this fight (fires + amounts applied), for the battle summary.
+    this.items = items.map(i => ({ ...i, bonus: {}, uses: 0, goldEarned: 0, extraMc: 0, rec: { fires: 0 },
       charge: 0, cost: isActive(ITEMS[i.id]) ? chargeCost(i) : 0 }));
     this.goldEarned = 0; // gold won during this fight (paid out afterwards)
+    // Fight totals for the summary: dealt = to the enemy, the rest = for / to this side.
+    this.tot = { hitDmg: 0, burnDmg: 0, poisonDmg: 0, shield: 0, blocked: 0, healed: 0, regenHealed: 0, stormTaken: 0 };
     // Multicast auras (e.g. Conductor's Baton) are positional, so work them out once.
     for (const o of this.items) {
       const a = ITEMS[o.id].aura;
@@ -55,6 +58,7 @@ export class Battle {
     this.f = [a, b]; this.t = 0; this.fx = fx || (() => {});
     this.burnAcc = 0; this.secAcc = 0; this.done = false; this.result = null;
     this.ticks = 0; this.stormHits = 0; this.storm = 0; // storm = damage of the latest hit (0 until it starts)
+    this.src = []; // items whose effect is being applied right now (for the battle summary)
   }
   step(dt = SIM_DT) {
     if (this.done) return;
@@ -125,14 +129,16 @@ export class Battle {
     const me = this.f[i], d = def(inst), L = inst.level - 1, sp = d.special;
     this.fx('activate', i, inst);
     if (sp && sp.kind === 'amplify') { this.fx('activated', i, inst); return; } // passive
+    inst.rec.fires++; this.src.push(inst);
     const st = this.computeStats(i, inst);
     if (st.gold) { // gold on trigger, capped per item per fight
       const give = Math.max(0, Math.min(st.gold, (d.goldCap?.[L] ?? Infinity) - inst.goldEarned));
-      if (give) { inst.goldEarned += give; me.goldEarned += give; this.fx('float', i, `+${give}g`, 'gold'); }
+      if (give) { inst.goldEarned += give; me.goldEarned += give; this.note('gold', give); this.fx('float', i, `+${give}g`, 'gold'); }
       delete st.gold;
     }
     const events = this.applyStats(i, st, 1);
     if (sp) this.applySpecial(i, inst, sp, L, bar);
+    this.src.pop();
     this.fx('activated', i, inst);
     events.add('activate');
     if (!this.depth) this.fireTriggers(i, inst, events);
@@ -199,8 +205,10 @@ export class Battle {
       const L = o.level - 1, st = {};
       for (const [k, arr] of Object.entries(on.effects || {})) st[k] = arr[L];
       this.fx('activate', i, o);
+      o.rec.fires++; this.src.push(o);
       this.applyStats(i, st, 1);
       if (on.special) this.applySpecial(i, o, on.special, L, null);
+      this.src.pop();
       this.fx('activated', i, o);
     }
     this.depth--;
@@ -216,8 +224,10 @@ export class Battle {
       const L = inst.level - 1, st = {};
       for (const [k, arr] of Object.entries(s0.effects || {})) st[k] = arr[L];
       this.fx('activate', i, inst);
+      inst.rec.fires++; this.src.push(inst);
       this.applyStats(i, st, 1);
       if (s0.special) this.applySpecial(i, inst, s0.special, L, null);
+      this.src.pop();
       this.fx('activated', i, inst);
     }
   }
@@ -231,16 +241,17 @@ export class Battle {
       return x;
     };
     let v;
-    if ((v = val('maxhp')) > 0) { me.maxHp += v; me.hp += v; this.fx('float', i, `+${v} max`, 'heal'); }
-    if ((v = val('shield')) > 0) { me.shield += v; this.fx('float', i, `+${v}`, 'shield'); }
+    if ((v = val('maxhp')) > 0) { me.maxHp += v; me.hp += v; this.note('maxhp', v); this.fx('float', i, `+${v} max`, 'heal'); }
+    if ((v = val('shield')) > 0) { me.shield += v; me.tot.shield += v; this.note('shield', v); this.fx('float', i, `+${v}`, 'shield'); }
     if ((v = val('heal')) > 0) {
-      me.hp += Math.min(v, me.maxHp - me.hp); this.fx('float', i, `+${v}`, 'heal');
+      const got = Math.max(0, Math.min(v, me.maxHp - me.hp));
+      me.hp += got; me.tot.healed += got; this.note('heal', got); this.fx('float', i, `+${v}`, 'heal');
     }
-    if ((v = val('regen')) > 0) { me.regen += v; this.fx('float', i, `+${v} regen`, 'regen'); }
-    if ((v = val('cleanse')) > 0) { me.poison = Math.max(0, me.poison - v); me.burn = Math.max(0, me.burn - v); this.fx('float', i, `cleanse ${v}`, 'heal'); }
+    if ((v = val('regen')) > 0) { me.regen += v; this.note('regen', v); this.fx('float', i, `+${v} regen`, 'regen'); }
+    if ((v = val('cleanse')) > 0) { me.poison = Math.max(0, me.poison - v); me.burn = Math.max(0, me.burn - v); this.note('cleanse', v); this.fx('float', i, `cleanse ${v}`, 'heal'); }
     if ((v = val('damage')) > 0) this.hit(1 - i, v, 'damage');
-    if ((v = val('burn')) > 0) { foe.burn += v; this.fx('float', 1 - i, `+${v} burn`, 'burn'); }
-    if ((v = val('poison')) > 0) { foe.poison += v; this.fx('float', 1 - i, `+${v} poison`, 'poison'); }
+    if ((v = val('burn')) > 0) { foe.burn += v; this.note('burn', v); this.fx('float', 1 - i, `+${v} burn`, 'burn'); }
+    if ((v = val('poison')) > 0) { foe.poison += v; this.note('poison', v); this.fx('float', 1 - i, `+${v} poison`, 'poison'); }
     return events;
   }
   applySpecial(i, inst, sp, L, bar) {
@@ -287,9 +298,13 @@ export class Battle {
     const h = list.find(x => x.src === inst.uid);
     if (h) { h.v = Math.max(h.v, v); h.until = this.t + dur; } else list.push({ src: inst.uid, v, until: this.t + dur });
   }
+  // Credit an amount to the item whose effect is being applied (battle summary).
+  note(k, v) { const s = this.src[this.src.length - 1]; if (s && v) s.rec[k] = (s.rec[k] || 0) + v; }
   hit(target, amt, cls) {
     const t = this.f[target], blocked = Math.min(t.shield, amt);
-    t.shield -= blocked; t.hp -= amt - blocked;
+    t.shield -= blocked; t.hp -= amt - blocked; t.tot.blocked += blocked;
+    if (cls === 'storm') t.tot.stormTaken += amt;
+    else { this.f[1 - target].tot.hitDmg += amt; this.note('damage', amt); }
     this.fx('float', target, `−${amt}`, blocked === amt ? 'shield' : cls);
   }
   burnTick(i) {
@@ -297,13 +312,13 @@ export class Battle {
     // Shield soaks Burn at a reduced rate: each point of Shield blocks 1 / BURN_VS_SHIELD Burn damage.
     const covered = Math.min(me.burn, Math.floor(me.shield / BURN_VS_SHIELD));
     me.shield -= Math.ceil(covered * BURN_VS_SHIELD);
-    me.hp -= me.burn - covered;
+    me.hp -= me.burn - covered; me.tot.blocked += covered; this.f[1 - i].tot.burnDmg += me.burn;
     this.fx('float', i, `−${me.burn}`, covered === me.burn ? 'shield' : 'burn'); me.burn--;
   }
   secTick(i) {
     const me = this.f[i];
-    if (me.poison > 0) { me.hp -= me.poison; this.fx('float', i, `−${me.poison}`, 'poison'); }
-    if (me.regen > 0) { me.hp = Math.min(me.maxHp, me.hp + me.regen); this.fx('float', i, `+${me.regen}`, 'regen'); }
+    if (me.poison > 0) { me.hp -= me.poison; this.f[1 - i].tot.poisonDmg += me.poison; this.fx('float', i, `−${me.poison}`, 'poison'); }
+    if (me.regen > 0) { const got = Math.max(0, Math.min(me.regen, me.maxHp - me.hp)); me.hp += got; me.tot.regenHealed += got; this.fx('float', i, `+${me.regen}`, 'regen'); }
   }
   // Storm: same tick rate as Burn, hits both sides like a weapon (Shield absorbs it first),
   // and grows exponentially so stacked Shield can't stall forever.
