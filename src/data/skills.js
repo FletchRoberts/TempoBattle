@@ -11,7 +11,8 @@
 //
 // fx entries:
 //   { k: 'flat', stat, v, cat? }          your items that already have <stat> (and are <cat>) get +v of it each time
-//                                          they fire (scaled by charge cost like every flat bonus)
+//                                          they fire (scaled by charge cost like every flat bonus). stat '*': v is in
+//                                          Damage; each stat the item has gets the same worth (v / STAT_WEIGHT)
 //   { k: 'pct', stat, v, cat?, tag? }     your matching items' <stat> is v higher ('*' = every stat they have)
 //   { k: 'multicast', v, cat }            your <cat> items get +v multicast
 //   { k: 'startCharge', v, cat? }         battle start: your (cat) items begin with +v charge
@@ -20,7 +21,19 @@
 //   { k: 'maxHp', v }  (fraction)  { k: 'maxHpFlat', v }  { k: 'speed', v }  { k: 'stormWard', v }
 //   { k: 'gold' | 'bounty' | 'interest' | 'goldTouch' | 'freeRerolls', v }   economy
 // Any fx can also have `per`: the value is multiplied by something about your run (see PER).
+import { ITEMS, STAT_WEIGHT } from './items.js';
 export const SKILL_RARITIES = ['common', 'uncommon', 'rare', 'superrare', 'legendary'];
+// Stats a '*' flat bonus can add to (in this order in the text).
+export const FLAT_ANY = ['damage', 'shield', 'heal', 'burn', 'poison', 'regen'];
+const STAT_LABEL = { damage: 'Damage', shield: 'Shield', heal: 'Heal', burn: 'Burn', poison: 'Poison', regen: 'Regen' };
+// "+40 Damage / +35 Shield / +6 Burn": a '*' bonus in each stat the category's items actually have.
+function anyStatText(f, v) {
+  const has = k => Object.values(ITEMS).some(d => (!f.cat || (d.cats || []).includes(f.cat)) && (d.effects?.[k] || d.scale?.some(x => x.stat === k)));
+  const n = k => Math.max(1, Math.round(v / STAT_WEIGHT[k]));
+  if (!f.cat) return `+${n('damage')} Damage (or the same worth in their other stats)`;
+  const ks = FLAT_ANY.filter(has);
+  return ks.map(k => `+${n(k)} ${STAT_LABEL[k]}`).join(' / ') + (ks.length > 1 ? ' (each stat they have)' : '');
+}
 export const LEVEL_MULT = [1, 1.5, 2, 2.5, 3];
 
 // What a `per` skill counts. ctx comes from the run: { day, wins, livesLost, lives, gold, streak, empty }.
@@ -70,11 +83,11 @@ export const SKILLS = {
   wayfarer: { name: 'Wayfarer', icon: '🥾', rarity: 'common', text: 'Your Shield items give +{0} Shield {per}.', fx: [{ k: 'flat', stat: 'shield', per: 'day', v: [3, 5, 8, 12, 17] }] },
 
   // ---------- Uncommon ----------
-  fletching:  { name: 'Fletching', icon: '🪶', rarity: 'uncommon', text: 'Your Ranged items deal {0} more damage.', fx: [{ k: 'pct', stat: 'damage', v: 0.25, cat: 'Ranged' }] },
-  hearthfire: { name: 'Hearthfire', icon: '🏮', rarity: 'uncommon', text: 'Your Hearth items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.2, cat: 'Hearth' }] },
-  distill:    { name: 'Distillation', icon: '⚗️', rarity: 'uncommon', text: 'Your Alchemy items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.2, cat: 'Alchemy' }] },
-  riveted:    { name: 'Riveted', icon: '🛠️', rarity: 'uncommon', text: 'Your Armor items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.25, cat: 'Armor' }] },
-  medic:      { name: 'Field Medic', icon: '🩺', rarity: 'uncommon', text: 'Your Remedy items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.25, cat: 'Remedy' }] },
+  fletching:  { name: 'Fletching', icon: '🪶', rarity: 'uncommon', text: 'Your Ranged items deal +{0} damage.', fx: [{ k: 'flat', stat: 'damage', v: [25, 40, 60, 90], cat: 'Ranged' }] },
+  hearthfire: { name: 'Hearthfire', icon: '🏮', rarity: 'uncommon', text: 'Your Hearth items get {0}.', fx: [{ k: 'flat', stat: '*', v: [25, 40, 60, 90], cat: 'Hearth' }] },
+  distill:    { name: 'Distillation', icon: '⚗️', rarity: 'uncommon', text: 'Your Alchemy items get {0}.', fx: [{ k: 'flat', stat: '*', v: [25, 40, 60, 90], cat: 'Alchemy' }] },
+  riveted:    { name: 'Riveted', icon: '🛠️', rarity: 'uncommon', text: 'Your Armor items get {0}.', fx: [{ k: 'flat', stat: '*', v: [30, 48, 72, 105], cat: 'Armor' }] },
+  medic:      { name: 'Field Medic', icon: '🩺', rarity: 'uncommon', text: 'Your Remedy items get {0}.', fx: [{ k: 'flat', stat: '*', v: [30, 48, 72, 105], cat: 'Remedy' }] },
   gears:      { name: 'Oiled Gears', icon: '🛢️', rarity: 'uncommon', text: 'Your Clockwork items start each fight with +{0} charge.', fx: [{ k: 'startCharge', v: [1, 1, 2, 2], cat: 'Clockwork' }] },
   ironskin:   { name: 'Iron Skin', icon: '🪖', rarity: 'uncommon', text: 'Battle start: gain Shield equal to {0} of your max HP.', fx: [{ k: 'startShield', v: 0.1 }] },
   bounty:     { name: 'Bounty Hunter', icon: '💰', rarity: 'uncommon', text: 'Gain {0} extra gold after every win.', fx: [{ k: 'bounty', v: [4, 6, 8, 11] }] },
@@ -83,39 +96,39 @@ export const SKILLS = {
   scartissue: { name: 'Scar Tissue', icon: '🩹', rarity: 'uncommon', text: '+{0} max HP {per}.', fx: [{ k: 'maxHpFlat', per: 'lifeLost', v: [30, 55, 90, 135] }] },
   underdog:   { name: 'Underdog', icon: '🐕', rarity: 'uncommon', text: 'Battle start: gain Shield equal to {0} of your max HP {per}.', fx: [{ k: 'startShield', per: 'lifeLost', v: [0.02, 0.03, 0.045, 0.06] }] },
   hoarder:    { name: 'Hoarder', icon: '🐉', rarity: 'uncommon', text: 'Your items that deal damage deal +{0} damage {per}.', fx: [{ k: 'flat', stat: 'damage', per: 'gold', v: [1, 1.5, 2.2, 3] }] },
-  momentum:   { name: 'Momentum', icon: '🌊', rarity: 'uncommon', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'streak', v: [0.04, 0.06, 0.08, 0.1] }] },
+  momentum:   { name: 'Momentum', icon: '🌊', rarity: 'uncommon', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'streak', v: [6, 9, 13, 18] }] },
 
   // ---------- Rare ----------
-  fury:       { name: 'Battle Fury', icon: '💢', rarity: 'rare', text: 'All your damage is {0} higher.', fx: [{ k: 'pct', stat: 'damage', v: 0.15 }] },
-  packbond:   { name: 'Pack Bond', icon: '🐺', rarity: 'rare', text: 'Your Beast items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.3, cat: 'Beast' }] },
-  rally:      { name: 'Rallying Cry', icon: '📣', rarity: 'rare', text: 'Your Herald items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.3, cat: 'Herald' }] },
-  oldmagic:   { name: 'Old Magic', icon: '🔮', rarity: 'rare', text: 'Your Relic items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.25, cat: 'Relic' }] },
-  foundations:{ name: 'Foundations', icon: '🧱', rarity: 'rare', text: 'Your Landmark items are {0} stronger.', fx: [{ k: 'pct', stat: '*', v: 0.3, cat: 'Landmark' }] },
+  fury:       { name: 'Battle Fury', icon: '💢', rarity: 'rare', text: 'Your items that deal damage deal +{0} damage.', fx: [{ k: 'flat', stat: 'damage', v: [30, 45, 70] }] },
+  packbond:   { name: 'Pack Bond', icon: '🐺', rarity: 'rare', text: 'Your Beast items get {0}.', fx: [{ k: 'flat', stat: '*', v: [45, 70, 105], cat: 'Beast' }] },
+  rally:      { name: 'Rallying Cry', icon: '📣', rarity: 'rare', text: 'Your Herald items get {0}.', fx: [{ k: 'flat', stat: '*', v: [45, 70, 105], cat: 'Herald' }] },
+  oldmagic:   { name: 'Old Magic', icon: '🔮', rarity: 'rare', text: 'Your Relic items get {0}.', fx: [{ k: 'flat', stat: '*', v: [40, 60, 90], cat: 'Relic' }] },
+  foundations:{ name: 'Foundations', icon: '🧱', rarity: 'rare', text: 'Your Landmark items get {0}.', fx: [{ k: 'flat', stat: '*', v: [45, 70, 105], cat: 'Landmark' }] },
   overgrowth: { name: 'Overgrowth', icon: '🌿', rarity: 'rare', text: 'Your Flora items start each fight with +{0} charge.', fx: [{ k: 'startCharge', v: [2, 2, 3], cat: 'Flora' }] },
   clockwork:  { name: 'Clockwork Heart', icon: '⌚', rarity: 'rare', text: 'Your bar moves {0} faster.', fx: [{ k: 'speed', v: 0.1 }] },
   stormward:  { name: 'Storm Ward', icon: '⛈️', rarity: 'rare', text: 'You take {0} less storm damage.', fx: [{ k: 'stormWard', v: [0.3, 0.45, 0.6] }] },
   interest:   { name: 'Compound Interest', icon: '🏦', rarity: 'rare', text: 'After every fight, gain 10% of your gold as interest (up to {0}).', fx: [{ k: 'interest', v: [6, 9, 12] }] },
   // scaling off the run
-  seasoned:   { name: 'Seasoned', icon: '🏅', rarity: 'rare', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'win', v: [0.025, 0.035, 0.05] }] },
-  minimalist: { name: 'Minimalist', icon: '◻️', rarity: 'rare', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'empty', v: [0.04, 0.06, 0.08] }] },
+  seasoned:   { name: 'Seasoned', icon: '🏅', rarity: 'rare', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'win', v: [6, 9, 13] }] },
+  minimalist: { name: 'Minimalist', icon: '◻️', rarity: 'rare', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'empty', v: [8, 12, 18] }] },
 
   // ---------- Super Rare ----------
   echosteel:  { name: 'Echoing Steel', icon: '⚔️', rarity: 'superrare', text: 'Your Melee items have +{0} multicast.', fx: [{ k: 'multicast', v: [1, 2], cat: 'Melee' }] },
   static:     { name: 'Static Charge', icon: '🔌', rarity: 'superrare', text: 'Your items start each fight with +{0} charge.', fx: [{ k: 'startCharge', v: [2, 3] }] },
-  inferno:    { name: 'Kindled Soul', icon: '☄️', rarity: 'superrare', text: 'Your Burn is {0} stronger.', fx: [{ k: 'pct', stat: 'burn', v: 0.3 }] },
-  blight:     { name: 'Blight', icon: '🧫', rarity: 'superrare', text: 'Your Poison is {0} stronger.', fx: [{ k: 'pct', stat: 'poison', v: 0.3 }] },
+  inferno:    { name: 'Kindled Soul', icon: '☄️', rarity: 'superrare', text: 'Your Burn items burn +{0} more.', fx: [{ k: 'flat', stat: 'burn', v: [8, 12] }] },
+  blight:     { name: 'Blight', icon: '🧫', rarity: 'superrare', text: 'Your Poison items poison +{0} more.', fx: [{ k: 'flat', stat: 'poison', v: [10, 15] }] },
   goldtouch:  { name: 'Golden Touch', icon: '✋', rarity: 'superrare', text: 'Each of your gold-paying items pays {0} more after fights.', fx: [{ k: 'goldTouch', v: [2, 3] }] },
   vital:      { name: 'Vital Core', icon: '❤️‍🩹', rarity: 'superrare', text: '{0} max HP.', fx: [{ k: 'maxHp', v: 0.15 }] },
-  shell:      { name: 'Thick Shell', icon: '🐢', rarity: 'superrare', text: 'Your Shield items give {0} more Shield.', fx: [{ k: 'pct', stat: 'shield', v: 0.3 }] },
-  desperation:{ name: 'Desperation', icon: '🔥', rarity: 'superrare', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'desperate', v: [0.3, 0.45] }] },
+  shell:      { name: 'Thick Shell', icon: '🐢', rarity: 'superrare', text: 'Your Shield items give +{0} Shield.', fx: [{ k: 'flat', stat: 'shield', v: [60, 90] }] },
+  desperation:{ name: 'Desperation', icon: '🔥', rarity: 'superrare', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'desperate', v: [70, 105] }] },
 
   // ---------- Legendary ----------
   timeheart:  { name: 'Heart of the Clock', icon: '🕰️', rarity: 'legendary', text: 'Your bar moves {0} faster.', fx: [{ k: 'speed', v: 0.2 }] },
   alchgift:   { name: "Philosopher's Gift", icon: '💎', rarity: 'legendary', text: 'Your Alchemy items have +{0} multicast.', fx: [{ k: 'multicast', v: [1], cat: 'Alchemy' }] },
   beastlord:  { name: 'Beastlord', icon: '🦁', rarity: 'legendary', text: 'Your Beast items have +{0} multicast.', fx: [{ k: 'multicast', v: [1], cat: 'Beast' }] },
-  mending:    { name: 'Mending Aura', icon: '💞', rarity: 'legendary', text: 'Your Heal and Regen are {0} stronger.', fx: [{ k: 'pct', stat: 'heal', v: 0.5 }, { k: 'pct', stat: 'regen', v: 0.5 }] },
-  executioner:{ name: 'Executioner', icon: '🪓', rarity: 'legendary', text: 'All your damage is {0} higher.', fx: [{ k: 'pct', stat: 'damage', v: 0.3 }] },
-  legend:     { name: 'Living Legend', icon: '🌟', rarity: 'legendary', text: 'Your items are {0} stronger {per}.', fx: [{ k: 'pct', stat: '*', per: 'win', v: [0.06] }] },
+  mending:    { name: 'Mending Aura', icon: '💞', rarity: 'legendary', text: 'Your Heal items heal +{0} more and your Regen items give +{1} more Regen.', fx: [{ k: 'flat', stat: 'heal', v: [100] }, { k: 'flat', stat: 'regen', v: [12] }] },
+  executioner:{ name: 'Executioner', icon: '🪓', rarity: 'legendary', text: 'Your items that deal damage deal +{0} damage.', fx: [{ k: 'flat', stat: 'damage', v: [90] }] },
+  legend:     { name: 'Living Legend', icon: '🌟', rarity: 'legendary', text: 'Your items get {0} {per}.', fx: [{ k: 'flat', stat: '*', per: 'win', v: [15] }] },
 };
 
 // ---------- Levels ----------
@@ -164,7 +177,7 @@ export function skillEffects(ids = [], ctx = {}) {
 
 // ---------- Text ----------
 const PCT_KINDS = new Set(['pct', 'startShield', 'speed', 'maxHp', 'stormWard']);
-const fmt = (f, v) => (PCT_KINDS.has(f.k) ? `${+(v * 100).toFixed(1)}%` : String(+v.toFixed(1)));
+const fmt = (f, v) => (f.k === 'flat' && f.stat === '*' ? anyStatText(f, v) : PCT_KINDS.has(f.k) ? `${+(v * 100).toFixed(1)}%` : String(+v.toFixed(1)));
 // "Your Melee items deal +22 damage." for a level; with ctx, `per` skills add what they give right now.
 export function skillText(id, level = 1, ctx = null) {
   const s = SKILLS[id];
@@ -172,7 +185,7 @@ export function skillText(id, level = 1, ctx = null) {
   const per = s.fx.find(f => f.per);
   if (per) {
     t = t.replace('{per}', PER[per.per].text);
-    if (ctx) t = t.replace(/\.?$/, ` (now ${PCT_KINDS.has(per.k) ? '' : '+'}${fmt(per, fxValue(per, level) * PER[per.per].of(ctx))}).`);
+    if (ctx) { const now = fmt(per, fxValue(per, level) * PER[per.per].of(ctx)).replace(/ \((each stat they have|or the same worth in their other stats)\)$/, ''); t = t.replace(/\.?$/, ` (now ${PCT_KINDS.has(per.k) || now.startsWith('+') ? '' : '+'}${now}).`); }
   }
   return t;
 }

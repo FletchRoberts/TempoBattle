@@ -1,7 +1,7 @@
 // Deterministic combat simulation. The game, the bots and the rating tool all run this exact code
 // with a fixed timestep, so a matchup always has the same result everywhere.
-import { ITEMS } from '../data/items.js';
-import { skillEffects } from '../data/skills.js';
+import { ITEMS, STAT_WEIGHT } from '../data/items.js';
+import { skillEffects, FLAT_ANY } from '../data/skills.js';
 import { COLS, def, statsOf, tagsOf, adjacent, inScope, hasCat, uid, isActive, chargeCost, perFireScale, scaledBonus, emptyCells } from './rules.js';
 
 export const COL_TIME = 0.25;  // seconds for a bar to cross one column at speed ×1 (a 5-column pass = 1.25s)
@@ -170,8 +170,9 @@ export class Battle {
     // Skills: "+X <stat>" (flat, scaled by charge cost) then "+X% <stat>", for matching items
     // (by category / tag), on the stats this item already has.
     for (const p of me.sk.flat) {
-      if (!st[p.stat] || !hasCat(inst, p.cat)) continue;
-      st[p.stat] += scaledBonus(p.v, perFireScale(inst));
+      if (!hasCat(inst, p.cat)) continue;
+      if (p.stat === '*') { for (const k of FLAT_ANY) if (st[k] > 0) st[k] += scaledBonus(p.v / STAT_WEIGHT[k], perFireScale(inst)); }
+      else if (st[p.stat]) st[p.stat] += scaledBonus(p.v, perFireScale(inst));
     }
     // Percentages from different skills add up (+20% and +30% = +50%) rather than multiply.
     const pctSum = {};

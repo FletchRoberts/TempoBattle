@@ -152,7 +152,7 @@ const ctxOf = (st, day) => ({ day, wins: st.wins, livesLost: st.livesLost, lives
 const STAT_TAG = { damage: 'weapon', burn: 'fire', poison: 'poison', heal: 'heal', shield: 'shield', regen: 'regen' };
 const ECON = ['gold', 'interest', 'bounty', 'goldTouch', 'freeRerolls'];
 // Typical size of each stat on an item, to judge what a flat "+X <stat>" is worth.
-const STAT_SIZE = { damage: 60, burn: 6, poison: 6, shield: 40, heal: 40, regen: 8 };
+const STAT_SIZE = { damage: 60, burn: 6, poison: 6, shield: 40, heal: 40, regen: 8, '*': 60 };
 // Gut-feel value of picking skill `id` (new, or one more level) for this board.
 function skillAppeal(id, st, arch, day) {
   const board = st.board, n = Math.max(1, board.length);
