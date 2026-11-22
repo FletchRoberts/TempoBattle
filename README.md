@@ -40,7 +40,7 @@ game skips straight to the fight for now.
 
 | Multicast | An item fires `multicast` times per bar hit (default 1). Items can set `multicast` in `items.js`. |
 | Modifiers | Shop buys (1 per shop, 2 from Day 3) that add a flat stat and its tag to one item, e.g. Kindling +2 Burn. No limit per item. Echo Rune (rare) adds +1 multicast (up to ×4). |
-| Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. |
+| Infusions | Rare. A shop item is pre-infused 8% of the time, and a Wild Essence (random infusion) shows up in 20% of shops. An infusion adds a percentage of the item's power (its per-fire numbers in damage terms, `STAT_WEIGHT`) as its own stat, e.g. Ember Essence = Burn worth 30% of the item, so big items get big infusions. |
 | Shiny | A shop item rolls shiny 2.5–8% of the time (more on later days): +1 multicast on top of its own, double price. Merging keeps it. Some items have built-in `multicast`. |
 | Freeze | Freeze the shop to keep its unsold offers for the next day. Sold slots refill; rerolling unfreezes. |
 | Infusion | An essence adds a second stat and its tag to an item. |
@@ -136,6 +136,8 @@ What it measures per item:
   power creep. Suggestions only move items toward their tier median, never above it.
 - **Bot diversity**: how many items make up 80% of each skill level's picks. If experts collapse onto
   a few items, the bots are over-optimising and the numbers will mislead.
+
+Tuning helpers: `node tools/scale-stats.js poison=0.75 damage=1.15` scales a stat across every item; `node tools/calibrate-hp.js --write` re-fits max HP per day so fights last ~18s (rebuild the pool before and after).
 
 Other options: `--quick` (faster, noisier), `--set item.path=values`, `--set artifact:id.v=...`,
 `--only weak`.

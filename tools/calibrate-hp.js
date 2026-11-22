@@ -32,8 +32,11 @@ for (const [day, teams] of Object.entries(pool.days)) {
   table.push(Math.round(Math.sqrt(lo * hi) / 10) * 10);
   process.stdout.write(`\rday ${day}: ${table.at(-1)}      `);
 }
-// Never let max HP go down from one day to the next.
-for (let i = 1; i < table.length; i++) table[i] = Math.max(table[i], table[i - 1]);
+// Smooth: average each day with its neighbours (in log space), never grow less than 8% a day.
+const L = table.map(Math.log);
+const S = L.map((v, i) => i === 0 ? v : i === L.length - 1 ? L[i - 1] + Math.log(1.2) : (L[i - 1] + v + L[i + 1]) / 3);
+for (let i = 1; i < S.length; i++) S[i] = Math.max(S[i], S[i - 1] + Math.log(1.08));
+table.splice(0, table.length, ...S.map(v => Math.round(Math.exp(v) / 10) * 10));
 console.log(`\n\nexport const HP_BY_DAY = [${table.join(', ')}];`);
 if (process.argv.includes('--write')) {
   const f = new URL('../src/core/rules.js', import.meta.url);

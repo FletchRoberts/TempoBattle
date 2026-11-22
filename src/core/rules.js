@@ -1,5 +1,5 @@
 // Run rules, economy and board helpers. No DOM here: shared by the game, the bots and the Node tools.
-import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, SHOP_TOKENS } from '../data/items.js';
+import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, SHOP_TOKENS, STAT_WEIGHT } from '../data/items.js';
 import { ARTIFACTS, artifactEffects } from '../data/artifacts.js';
 
 // 3 x 5 board: little spare space, so weak items have to be swapped out rather than kept around.
@@ -94,7 +94,7 @@ function rollMod(rng) {
 export const rerollCost = n => 1 + n;
 // Max HP per day, calibrated by tools/calibrate-hp.js so a typical fight lasts ~18s on every day
 // (items scale up fast, so HP has to as well), then smoothed. Days past the end use the last value.
-export const HP_BY_DAY = [260, 460, 750, 1040, 1410, 1820, 2570, 3310, 4160, 4760, 5240, 6130, 7250, 8730, 9960, 12330, 13760];
+export const HP_BY_DAY = [300, 400, 570, 780, 1130, 1620, 2320, 2890, 3300, 3850, 5000, 6070, 6770, 7450, 8790, 9840, 12780];
 export const maxHp = day => HP_BY_DAY[Math.min(day, HP_BY_DAY.length) - 1];
 export const income = (day, won) => 6 + day + (won ? 3 : 0); // gold gained after the day-`day` fight
 
@@ -202,9 +202,21 @@ export function statsOf(inst) {
   const d = def(inst), L = inst.level - 1, out = {};
   for (const [k, arr] of Object.entries(d.effects || {})) out[k] = (out[k] || 0) + arr[L];
   const pf = perFireScale(inst);
-  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + scaledBonus(f.v[tierIndex(inst)], pf); }
+  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; out[f.stat] = (out[f.stat] || 0) + infusionAmount(inst); }
   for (const id of inst.mods || []) { const m = MODIFIERS[id]; if (m.stat) out[m.stat] = (out[m.stat] || 0) + scaledBonus(m.v, pf); }
   return out;
+}
+// An item's power: its own per-fire numbers in damage terms. Items with no numbers of their own
+// (pure specials) count as a typical item of their tier and speed.
+export function itemPower(inst) {
+  const d = def(inst), L = inst.level - 1;
+  let p = 0;
+  for (const [k, arr] of Object.entries(d.effects || {})) if (STAT_WEIGHT[k]) p += arr[L] * STAT_WEIGHT[k];
+  return p || 24 * 1.55 ** tierIndex(inst) * perFireScale(inst);
+}
+export function infusionAmount(inst) {
+  const f = INFUSIONS[inst.infusion];
+  return f ? Math.max(1, Math.round(itemPower(inst) * f.pct / STAT_WEIGHT[f.stat])) : 0;
 }
 export function tagsOf(inst) {
   const t = new Set(def(inst).tags);

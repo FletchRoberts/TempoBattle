@@ -3,7 +3,7 @@ import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME,
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, LV, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
   tagsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
@@ -179,7 +179,7 @@ function describeLines(inst) {
   const d = def(inst), L = inst.level - 1, lines = [];
   for (const k of STAT_ORDER) if (d.effects?.[k]) lines.push(`<li class="s-${k}">${STAT_TEXT[k](prog(d.effects[k], L))}</li>`);
   if (d.special) { const SP = SPECIALS[d.special.kind]; lines.push(`<li class="s-special">${SP.text(d.special, prog(d.special.v, L, SP.fmt))}</li>`); }
-  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](prog(f.v.slice(progBase), L))}</li>`); }
+  if (inst.infusion) { const f = INFUSIONS[inst.infusion]; lines.push(`<li class="s-${f.stat} infused">${f.icon} Infused: ${STAT_TEXT[f.stat](`<span class="cur">${infusionAmount(inst)}</span>`)} (${Math.round(f.pct * 100)}% of this item's power)</li>`); }
   if (d.start) {
     const parts = [];
     for (const k of STAT_ORDER) if (d.start.effects?.[k]) parts.push(STAT_TEXT[k](prog(d.start.effects[k], L)));
@@ -520,7 +520,7 @@ function showInspector(target) {
     return;
   }
   if (target.essence) {
-    const outcomes = Object.values(INFUSIONS).map(f => `<li class="s-${f.stat}">${f.icon} ${STAT_TEXT[f.stat](prog(f.v, -1))}</li>`).join('');
+    const outcomes = Object.values(INFUSIONS).map(f => `<li class="s-${f.stat}">${f.icon} ${STAT_NAME[f.stat]} worth ${Math.round(f.pct * 100)}% of the item's power</li>`).join('');
     p.innerHTML = `<div class="ins-h"><span class="ins-ico">${WILD_ESSENCE.icon}</span><div><h3>${WILD_ESSENCE.name}</h3><span class="chip">Essence</span></div></div>
       <p class="muted">Gives an item one random infusion (by its level), plus that tag. Replaces any infusion it has.</p>
       <ul class="effects">${outcomes}</ul>`;
