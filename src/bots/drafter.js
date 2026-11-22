@@ -4,7 +4,7 @@ import { ITEMS } from '../data/items.js';
 import { SKILLS, skillEffects, skillOffers, skillLevels, fxValue, PER } from '../data/skills.js';
 import { makeRng } from '../core/rng.js';
 import {
-  START_GOLD, START_LIVES, MAX_DAYS, lifeLoss, SHOP_STYLES, baseTier, topTier, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rollShopChoices, rerollCost,
+  START_GOLD, START_LIVES, MAX_DAYS, lifeLoss, baseTier, topTier, def, tagsOf, statsOf, adjacent, inScope, freeSpots, rollShop, rollShopChoices, rerollCost,
   canMerge, mergeInto, sellValue, starterBoard, snapshot, maxHp,
   afterFightGold, offerPrice, tierOf, isActive, chargeCost, CHARGE_DEFAULT, hasCat, perFireScale,
 } from '../core/rules.js';
@@ -12,13 +12,7 @@ import { simulate } from '../core/sim.js';
 import { tel, telShop } from '../balance/telemetry.js';
 
 const STAT_TAG_V = { damage: 'weapon', shield: 'shield' };
-// Can this item hurt the enemy? A board with none of these can only stall until the storm.
-const OFFENSE = ['damage', 'burn', 'poison'];
-export const isOffense = idOrInst => {
-  const d = ITEMS[idOrInst.id || idOrInst];
-  return OFFENSE.some(k => d.effects?.[k] || d.start?.effects?.[k] || d.on?.effects?.[k]) || !!d.scale?.some(x => OFFENSE.includes(x.stat));
-};
-const needsOffense = board => !board.some(isOffense);
+
 const POWER = { common: 1, uncommon: 1.35, rare: 1.75, superrare: 2.4, legendary: 3.2 };
 // Items whose value depends on what sits next to / in line with them get placed last.
 const isSupport = inst => {
@@ -196,12 +190,6 @@ function chooseSkill(st, rarity, day, arch, skill, rng, bench) {
 // Gut feel: rarer odds, discounts, shiny and bonus shops are good; a category shop is as good as
 // the bot's taste for that category; Twin Peddler is good when it has things worth merging.
 function styleAppeal(style, st, arch, day) {
-  if (needsOffense(st.board)) {
-    const f = SHOP_STYLES[style.id].filter?.(style);
-    const ids = Object.keys(ITEMS).filter(k => (!f || f(k)) && baseTier(k) <= topTier(day, SHOP_STYLES[style.id].boost || 0));
-    const share = ids.filter(isOffense).length / Math.max(1, ids.length);
-    if (share < 0.3) return 0.2 + share;
-  }
   switch (style.id) {
     case 'category': {
       const ids = Object.keys(ITEMS).filter(k => (ITEMS[k].cats || []).includes(style.cat) && baseTier(k) <= topTier(day));
@@ -262,8 +250,7 @@ function shopDay(st, day, arch, skill, rng, style) {
     telShop(rolled);
     const offers = rolled.map(o => {
       const twin = st.board.some(b => canMerge(b, o.inst));
-      const first = needsOffense(st.board) && isOffense(o.inst) ? 3 : 0; // a board with no way to hurt anyone needs this first
-      return { o, s: itemValue(o.inst, st.board, arch) + (twin ? 1.5 : 0) + first + rng.next() * skill.noise };
+      return { o, s: itemValue(o.inst, st.board, arch) + (twin ? 1.5 : 0) + rng.next() * skill.noise };
     }).sort((a, b) => b.s - a.s);
     for (const { o, s } of offers) {
       if (offerPrice(o) > st.gold || s < 0.8) continue;
