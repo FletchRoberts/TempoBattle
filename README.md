@@ -53,7 +53,7 @@ game skips straight to the fight for now.
 | Upgrading | Merging two copies of the same item at the same tier makes it one tier higher. Items start at their own rarity and can climb to Legendary; Legendaries can't be upgraded. Each item lists one value per reachable tier. |
 | Shop rank | Rank = day + Guild Charters bought. Rarity odds per rank in `RANK_ODDS`: 100% Common at rank 1, capping at 8/20/32/25/15 from rank 10. |
 | Sales | 8% of item offers are half price (`SALE_CHANCE`). |
-| Shop tokens | Like essences, occasional shop offers that act when bought (`SHOP_TOKENS`): Guild Charter (+1 shop rank for the run, 12% of shops), Coupon (−2g on item offers for the day, 15%). |
+| Shop tokens | Like essences, occasional shop offers that act when bought (`SHOP_TOKENS`): Guild Charter (+1 shop rank for the run, 12% of shops), Coupon (free, 15%: puts one item offer of your choice in the current shop on sale at half price; one Coupon per day). |
 | Moving items | Drag, or click to pick up and click to place. Placing on another item swaps them (it goes to your hand). Esc / right-click puts a held item back. |
 | Run | 10 lives, 10 wins to clear. A loss costs 1 life on Days 1–3, 2 on Days 4–7, 3 after (`lifeLoss`). At most 17 days. |
 | Last Stand | The first time you hit 0 lives, pick 1 of 3 rare boons (`BOONS` in `src/ui/app.js`) and continue on 1 life. |

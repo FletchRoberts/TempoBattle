@@ -3,7 +3,7 @@ import { ITEMS, RARITY, INFUSIONS, MODIFIERS, WILD_ESSENCE, TAG_NAME, STAT_NAME,
 import { makeRng } from '../core/rng.js';
 import {
   COLS, BENCH_MAX, START_LIVES, WINS_TO_CLEAR, START_GOLD, DAY_FLOW, ENCOUNTERS, SHINY_BONUS, lifeLoss, newInst,
-  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop,
+  def, priceOf, sellValue, canMerge, mergeInto, isShiny, rerollCost, canApplyMod, infusionAmount, perFireScale, scaledBonus, isActive, chargeCost, CHARGE_DEFAULT, maxLevel, tierOf, tierIndex, baseTier, RARITIES, applyMod, rollInfusion, maxHp, income, starterBoard, rollShop, couponTargets,
   tagsOf, statsOf, canPlace, itemAt, snapshot, fromSnapshot, afterFightGold, shopRank, rarityWeights, offerPrice, MAX_RANK,
 } from '../core/rules.js';
 import { Fighter, Battle, previewStats, COL_TIME, BURN_TICK, OVERTIME, STORM_BASE, STORM_GROWTH, SIM_DT, BURN_VS_SHIELD } from '../core/sim.js';
@@ -20,7 +20,7 @@ let store, rng, S;
 export function startApp(poolStore) {
   store = poolStore;
   window.addEventListener('resize', () => { if (S.phase === 'pvp') CELL = setCell(); else render(); });
-  window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  window.addEventListener('keydown', e => { if (e.key !== 'Escape') return; closeModal(); if (S.couponPick != null) { S.couponPick = null; render(); } });
   S = { phase: 'title' };
   render();
 }
@@ -30,7 +30,7 @@ function newRun() {
   rng = makeRng(Date.now());
   S = {
     runId: Date.now().toString(36) + rng.int(1e6).toString(36),
-    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, skills: [], skillPicks: ['starter'], rankBonus: 0, coupon: 0, hand: null,
+    phase: 'shop', day: 1, gold: START_GOLD, lives: START_LIVES, wins: 0, rerolls: 0, frozen: false, bonusHp: 0, lastStandUsed: false, skills: [], skillPicks: ['starter'], rankBonus: 0, couponUsed: false, couponPick: null, hand: null,
     board: starterBoard(), bench: [], consumables: [], shop: [], faced: new Set(), history: [],
     selected: null, pending: null, battle: null, opponent: null, over: false,
   };
@@ -71,7 +71,7 @@ function fightPayout(result, commit) {
 }
 function advanceDay(result) {
   S.gold += fightPayout(result, true).total;
-  S.day++; S.rerolls = 0; S.coupon = 0;
+  S.day++; S.rerolls = 0; S.couponUsed = false; S.couponPick = null;
   S.phase = 'shop';
   // A frozen shop keeps its unsold offers into the next day; sold slots are refilled.
   const kept = S.frozen ? S.shop.filter(o => !o.sold) : [];
@@ -403,14 +403,14 @@ function renderShop() {
   const left = el('div', 'col-main'), right = el('aside', 'col-side');
 
   const offers = el('section', 'panel offers');
-  const rank = shopRank(S.day, S.rankBonus), odds = rarityWeights(rank), disc = S.coupon;
+  const rank = shopRank(S.day, S.rankBonus), odds = rarityWeights(rank), picking = S.couponPick != null;
   const oddsHtml = Object.entries(odds).map(([r, p]) => `<span class="odd r-${r}" title="${RARITY[r].name}"><i style="width:${p}%"></i><b>${p}%</b> ${RARITY[r].name}</span>`).join('');
   offers.append(el('header', 'panel-h', `<h2>Shop</h2><span class="rank-chip" title="Rises by 1 each day. Guild Charters raise it more.">Rank ${rank}${rank >= MAX_RANK ? ' · max odds' : ''}</span>
-    ${disc ? `<span class="chip">Coupon: −${disc}g on items today</span>` : ''}<span class="hint">Click to buy. Drop an item on its twin to level it up.</span>
+    ${picking ? `<span class="chip coupon-chip">🏷️ Pick an item to put on sale · Esc to cancel</span>` : `<span class="hint">Click to buy. Drop an item on its twin to level it up.</span>`}
     <div class="odds" aria-label="Rarity odds at this rank">${oddsHtml}</div>`));
   const row = el('div', 'offer-row');
   S.shop.forEach((o, idx) => {
-    const price = offerPrice(o, S.coupon);
+    const price = offerPrice(o);
     const c = el('button', 'offer' + (o.sold ? ' sold' : '') + (price > S.gold && !o.sold ? ' poor' : '') + (o.sale && !o.sold ? ' on-sale' : ''));
     c.type = 'button';
     if (o.kind === 'item') {
@@ -433,6 +433,8 @@ function renderShop() {
     } else if (o.kind === 'token') {
       const t = SHOP_TOKENS[o.id];
       c.classList.add('essence', 'token');
+      if (t.halfOff && S.couponUsed && !o.sold) c.classList.add('used-up');
+      if (picking && idx === S.couponPick) c.classList.add('coupon-on');
       c.innerHTML = `<span class="o-ico">${t.icon}</span><span class="o-name">${t.name}</span><span class="o-meta">${t.text}</span>`;
       c.onmouseenter = c.onfocus = () => showInspector({ token: o.id });
     } else {
@@ -443,7 +445,9 @@ function renderShop() {
     if (o.frozen && !o.sold) c.classList.add('was-frozen');
     if (S.frozen && !o.sold) c.classList.add('frozen');
     const full = o.kind === 'item' && price < o.price ? ` <s>${o.price}g</s>` : '';
-    c.append(el('span', 'price', o.sold ? 'Sold' : `${price}g${full}${o.sale ? ' <b class="sale-tag">½ price</b>' : ''}`));
+    if (picking && couponTargets(S.shop).includes(o)) c.classList.add('coupon-target');
+    const usedUp = o.kind === 'token' && SHOP_TOKENS[o.id].halfOff && S.couponUsed;
+    c.append(el('span', 'price', o.sold ? 'Sold' : usedUp ? 'Used one today' : `${price ? price + 'g' : 'Free'}${full}${o.sale ? ' <b class="sale-tag">½ price</b>' : ''}`));
     c.onclick = () => buy(idx);
     row.append(c);
   });
@@ -584,14 +588,25 @@ function showInspector(target) {
 }
 
 function buy(idx) {
-  const o = S.shop[idx], price = offerPrice(o, S.coupon); if (o.sold || S.gold < price) return;
+  const o = S.shop[idx], price = offerPrice(o);
+  if (S.couponPick != null) { // choosing the item a Coupon puts on sale
+    if (idx === S.couponPick) { S.couponPick = null; return render(); }
+    if (!couponTargets(S.shop).includes(o)) return toast('Pick an item offer that is not already on sale.');
+    o.sale = true; S.shop[S.couponPick].sold = true; S.couponUsed = true; S.couponPick = null;
+    toast(`${def(o.inst).name} is now half price.`); return render();
+  }
+  if (o.kind === 'token' && SHOP_TOKENS[o.id].halfOff && !o.sold) {
+    if (S.couponUsed) return toast('You already used a Coupon today.');
+    if (!couponTargets(S.shop).length) return toast('No item here to put on sale.');
+    S.couponPick = idx; return render();
+  }
+  if (o.sold || S.gold < price) return;
   if (o.kind === 'item') {
     if (S.bench.length >= BENCH_MAX) return toast('Bench is full. Place or sell something first.');
     S.bench.push({ ...o.inst, mods: [...(o.inst.mods || [])] }); // a copy, so later merges don't change the sold card
   } else if (o.kind === 'token') {
     const t = SHOP_TOKENS[o.id];
     if (t.rank) S.rankBonus += t.rank;
-    if (t.discount) S.coupon += t.discount;
     toast(`${t.name}: ${t.text}`);
   } else S.consumables.push(o.kind === 'mod' ? { kind: 'mod', id: o.id } : { kind: 'essence' });
   S.gold -= price; o.sold = true; render();

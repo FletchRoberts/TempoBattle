@@ -150,12 +150,13 @@ export function rarityWeights(rank) {
 
 // ---------- Prices: sales and coupons ----------
 export const SALE_CHANCE = 0.08; // an item offer is sometimes half price
-// What an offer costs right now; `discount` (from Coupons) only affects item offers.
-export function offerPrice(o, discount = 0) {
+// What an offer costs right now: item offers on sale (rolled, or from a Coupon) are half price.
+export function offerPrice(o) {
   if (o.kind !== 'item') return o.price;
-  const base = o.sale ? Math.ceil(o.price / 2) : o.price;
-  return Math.max(1, base - discount);
+  return o.sale ? Math.ceil(o.price / 2) : o.price;
 }
+// Item offers a Coupon can put on sale.
+export const couponTargets = offers => offers.filter(o => o.kind === 'item' && !o.sold && !o.sale);
 
 export function rollRarity(rank, rng) {
   const w = rarityWeights(rank);
